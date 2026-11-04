@@ -25,106 +25,190 @@
 
 package org.geysermc.geyser.dump;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
-import com.google.common.io.Files;
-import com.nukkitx.protocol.bedrock.BedrockPacketCodec;
+import com.google.common.io.MoreFiles;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.annotations.SerializedName;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.netty.signaling.ProviderClient;
+import org.geysermc.floodgate.util.DeviceOs;
 import org.geysermc.geyser.GeyserImpl;
-import org.geysermc.geyser.text.AsteriskSerializer;
-import org.geysermc.geyser.configuration.GeyserConfiguration;
-import org.geysermc.geyser.network.MinecraftProtocol;
+import org.geysermc.geyser.api.GeyserApi;
+import org.geysermc.geyser.api.entity.custom.CustomEntityDefinition;
+import org.geysermc.geyser.api.extension.Extension;
+import org.geysermc.geyser.api.util.MinecraftVersion;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
+import org.geysermc.geyser.network.bedrock.nethernet.NetherNetServer;
+import org.geysermc.geyser.pack.ResourcePackHolder;
+import org.geysermc.geyser.registry.BlockRegistries;
+import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.text.AsteriskSerializer;
+import org.geysermc.geyser.util.CpuUtils;
 import org.geysermc.geyser.util.FileUtils;
 import org.geysermc.geyser.util.WebUtils;
-import org.geysermc.floodgate.util.DeviceOs;
-import org.geysermc.floodgate.util.FloodgateInfoHolder;
+import org.spongepowered.configurate.CommentedConfigurationNode;
+import org.spongepowered.configurate.ConfigurationNode;
+import org.spongepowered.configurate.serialize.SerializationException;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Properties;
 import java.util.stream.Collectors;
 
 @Getter
 public class DumpInfo {
-    @JsonIgnore
     private static final long MEGABYTE = 1024L * 1024L;
 
     private final DumpInfo.VersionInfo versionInfo;
     private final int cpuCount;
-    private Properties gitInfo;
-    private final GeyserConfiguration config;
-    private final Floodgate floodgate;
+    private final String cpuName;
+    private final Locale systemLocale;
+    private final String systemEncoding;
+    private final String systemTime;
+    private final String systemTimeZone;
+    private final GitInfo gitInfo;
+    private Object config;
     private final Object2IntMap<DeviceOs> userPlatforms;
-    private final HashInfo hashInfo;
+    private final int connectionAttempts;
+    private final String hash;
     private final RamInfo ramInfo;
     private LogsInfo logsInfo;
     private final BootstrapDumpInfo bootstrapInfo;
     private final FlagsInfo flagsInfo;
+    private final List<ExtensionInfo> extensionInfo;
+    private final List<PackInfo> packInfo;
+    private final MappingInfo mappingInfo;
+    private final NetherNetInfo netherNetInfo;
 
-    public DumpInfo(boolean addLog) {
+    public DumpInfo(GeyserImpl geyser, boolean addLog) {
         this.versionInfo = new VersionInfo();
 
         this.cpuCount = Runtime.getRuntime().availableProcessors();
+        this.cpuName = CpuUtils.tryGetProcessorName();
+        this.systemLocale = Locale.getDefault();
+        this.systemEncoding = Charset.defaultCharset().displayName();
+        this.systemTime = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS));
+        this.systemTimeZone = ZoneId.systemDefault().getId();
 
-        try (InputStream stream = GeyserImpl.getInstance().getBootstrap().getResource("git.properties")) {
-            this.gitInfo = new Properties();
-            this.gitInfo.load(stream);
-        } catch (IOException ignored) {
-        }
+        this.gitInfo = new GitInfo(GeyserImpl.BUILD_NUMBER, GeyserImpl.COMMIT.substring(0, 7), GeyserImpl.COMMIT, GeyserImpl.BRANCH, GeyserImpl.REPOSITORY);
 
-        this.config = GeyserImpl.getInstance().getConfig();
-        this.floodgate = new Floodgate();
-
-        String md5Hash = "unknown";
-        String sha256Hash = "unknown";
         try {
-            // https://stackoverflow.com/questions/320542/how-to-get-the-path-of-a-running-jar-file
-            // https://stackoverflow.com/questions/304268/getting-a-files-md5-checksum-in-java
-            File file = new File(DumpInfo.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            ByteSource byteSource = Files.asByteSource(file);
-            // Jenkins uses MD5 for its hash
-            //noinspection UnstableApiUsage
-            md5Hash = byteSource.hash(Hashing.md5()).toString();
-            //noinspection UnstableApiUsage
-            sha256Hash = byteSource.hash(Hashing.sha256()).toString();
-        } catch (Exception e) {
-            if (GeyserImpl.getInstance().getConfig().isDebugMode()) {
+            // Workaround for JsonAdapter not being allowed on methods
+            ConfigurationNode configNode = CommentedConfigurationNode.root(AsteriskSerializer.dumpOptions());
+            configNode.set(geyser.config());
+            this.config = toGson(configNode);
+        } catch (SerializationException e) {
+            e.printStackTrace();
+            if (geyser.config().debugMode()) {
                 e.printStackTrace();
             }
         }
-        this.hashInfo = new HashInfo(md5Hash, sha256Hash);
 
-        this.ramInfo = new DumpInfo.RamInfo();
+        String sha256Hash = "unknown";
+        try {
+            // https://stackoverflow.com/questions/320542/how-to-get-the-path-of-a-running-jar-file
+            File file = new File(DumpInfo.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            ByteSource byteSource = MoreFiles.asByteSource(file.toPath());
+            //noinspection UnstableApiUsage
+            sha256Hash = byteSource.hash(Hashing.sha256()).toString();
+        } catch (Exception e) {
+            if (geyser.config().debugMode()) {
+                e.printStackTrace();
+            }
+        }
+        this.hash = sha256Hash;
+
+        this.ramInfo = new RamInfo();
 
         if (addLog) {
-            this.logsInfo = new LogsInfo();
+            this.logsInfo = new LogsInfo(geyser);
         }
 
         this.userPlatforms = new Object2IntOpenHashMap<>();
-        for (GeyserSession session : GeyserImpl.getInstance().getSessionManager().getAllSessions()) {
+        for (GeyserSession session : geyser.getSessionManager().getAllSessions()) {
             DeviceOs device = session.getClientData().getDeviceOs();
             userPlatforms.put(device, userPlatforms.getOrDefault(device, 0) + 1);
         }
 
-        this.bootstrapInfo = GeyserImpl.getInstance().getBootstrap().getDumpInfo();
+        if (geyser.getGeyserServer() != null) {
+            this.connectionAttempts = geyser.getGeyserServer().getConnectionAttempts();
+        } else {
+            this.connectionAttempts = 0; // Fallback if Geyser failed to fully startup
+        }
+
+        this.bootstrapInfo = geyser.getBootstrap().getDumpInfo();
 
         this.flagsInfo = new FlagsInfo();
+
+        this.extensionInfo = new ArrayList<>();
+        for (Extension extension : GeyserApi.api().extensionManager().extensions()) {
+            this.extensionInfo.add(new ExtensionInfo(extension.isEnabled(), extension.name(), extension.description().version(), extension.description().apiVersion(), extension.description().main(), extension.description().authors()));
+        }
+
+        this.packInfo = Registries.RESOURCE_PACKS.get().values().stream()
+            .map(PackInfo::new)
+            .toList();
+        this.mappingInfo = new MappingInfo(BlockRegistries.CUSTOM_BLOCKS.get().length,
+            BlockRegistries.CUSTOM_SKULLS.get().size(),
+            Registries.ITEMS.forVersion(GameProtocol.DEFAULT_BEDROCK_PROTOCOL).getCustomIdMappings().size(),
+            Registries.BEDROCK_ENTITY_DEFINITIONS.get().values().stream().filter(def -> def instanceof CustomEntityDefinition).toArray().length
+        );
+
+        NetherNetServer netherNet = geyser.getNetherNetServer();
+        this.netherNetInfo = netherNet == null ? null : NetherNetInfo.of(netherNet.advertised());
+    }
+
+    private JsonElement toGson(ConfigurationNode node) {
+        if (node.isMap()) {
+            JsonObject object = new JsonObject();
+            node.childrenMap().forEach((key, value) -> {
+                JsonElement json = toGson(value);
+                object.add(key.toString(), json);
+            });
+            return object;
+        } else if (node.isList()) {
+            JsonArray array = new JsonArray();
+            node.childrenList().forEach(childNode -> array.add(toGson(childNode)));
+            return array;
+        } else {
+            return convertRawScalar(node);
+        }
+    }
+
+    private JsonElement convertRawScalar(ConfigurationNode node) {
+        final @Nullable Object value = node.rawScalar();
+        return switch (value) {
+            case null -> JsonNull.INSTANCE;
+            case Number n -> new JsonPrimitive(n);
+            case Boolean b -> new JsonPrimitive(b);
+            default -> new JsonPrimitive(value.toString());
+        };
     }
 
     @Getter
@@ -149,11 +233,61 @@ public class DumpInfo {
             this.javaVersion = ManagementFactory.getRuntimeMXBean().getVmVersion(); // Gives a little more to the version we can use over the system property
             // Usually gives Java architecture but still may be helpful.
             this.architecture = System.getProperty("os.arch");
-            this.operatingSystem = System.getProperty("os.name");
+            this.operatingSystem = resolveOperatingSystemName();
             this.operatingSystemVersion = System.getProperty("os.version");
 
             this.network = new NetworkInfo();
             this.mcInfo = new MCInfo();
+        }
+
+        /**
+         * On Linux, includes the distro name and version (e.g. "Linux (Ubuntu 24.04)").
+         */
+        private static String resolveOperatingSystemName() {
+            String osName = System.getProperty("os.name");
+            if (osName == null || !osName.toLowerCase().contains("linux")) {
+                return osName;
+            }
+
+            for (String path : new String[]{"/etc/os-release", "/usr/lib/os-release"}) {
+                File file = new File(path);
+                if (!file.canRead()) {
+                    continue;
+                }
+                try {
+                    String name = null;
+                    String versionId = null;
+                    String prettyName = null;
+                    for (String line : Files.readAllLines(file.toPath())) {
+                        int split = line.indexOf('=');
+                        if (split < 0) {
+                            continue;
+                        }
+                        String key = line.substring(0, split).trim();
+                        String value = line.substring(split + 1).trim();
+                        if (value.length() >= 2 && (value.startsWith("\"") && value.endsWith("\"")
+                                || value.startsWith("'") && value.endsWith("'"))) {
+                            value = value.substring(1, value.length() - 1);
+                        }
+                        switch (key) {
+                            case "NAME" -> name = value;
+                            case "VERSION_ID" -> versionId = value;
+                            case "PRETTY_NAME" -> prettyName = value;
+                            default -> { }
+                        }
+                    }
+                    if (name != null && !name.isEmpty()) {
+                        String distro = versionId != null && !versionId.isEmpty() ? name + " " + versionId : name;
+                        return "Linux (" + distro + ")";
+                    }
+                    if (prettyName != null && !prettyName.isEmpty()) {
+                        return "Linux (" + prettyName + ")";
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                    // Fall back to the generic name
+                }
+            }
+            return osName;
         }
     }
 
@@ -164,9 +298,8 @@ public class DumpInfo {
 
         NetworkInfo() {
             if (AsteriskSerializer.showSensitive) {
-                try {
+                try (Socket socket = new Socket()) {
                     // This is the most reliable for getting the main local IP
-                    Socket socket = new Socket();
                     socket.connect(new InetSocketAddress("geysermc.org", 80));
                     this.internalIP = socket.getLocalAddress().getHostAddress();
                 } catch (IOException e1) {
@@ -189,8 +322,8 @@ public class DumpInfo {
         private boolean checkDockerBasic() {
             try {
                 String OS = System.getProperty("os.name").toLowerCase();
-                if (OS.indexOf("nix") >= 0 || OS.indexOf("nux") >= 0 || OS.indexOf("aix") > 0) {
-                    String output = new String(java.nio.file.Files.readAllBytes(Paths.get("/proc/1/cgroup")));
+                if (OS.contains("nix") || OS.contains("nux") || OS.indexOf("aix") > 0) {
+                    String output = new String(Files.readAllBytes(Paths.get("/proc/1/cgroup")));
 
                     if (output.contains("docker")) {
                         return true;
@@ -211,22 +344,11 @@ public class DumpInfo {
         private final int javaProtocol;
 
         MCInfo() {
-            this.bedrockVersions = MinecraftProtocol.SUPPORTED_BEDROCK_CODECS.stream().map(BedrockPacketCodec::getMinecraftVersion).toList();
-            this.bedrockProtocols = MinecraftProtocol.SUPPORTED_BEDROCK_CODECS.stream().map(BedrockPacketCodec::getProtocolVersion).toList();
-            this.defaultBedrockProtocol = MinecraftProtocol.DEFAULT_BEDROCK_CODEC.getProtocolVersion();
-            this.javaVersions = MinecraftProtocol.getJavaVersions();
-            this.javaProtocol = MinecraftProtocol.getJavaProtocolVersion();
-        }
-    }
-
-    @Getter
-    public static class Floodgate {
-        private final Properties gitInfo;
-        private final Object config;
-
-        Floodgate() {
-            this.gitInfo = FloodgateInfoHolder.getGitProperties();
-            this.config = FloodgateInfoHolder.getConfig();
+            this.bedrockVersions = GameProtocol.SUPPORTED_BEDROCK_VERSIONS.stream().map(MinecraftVersion::versionString).toList();
+            this.bedrockProtocols = GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS;
+            this.defaultBedrockProtocol = GameProtocol.DEFAULT_BEDROCK_PROTOCOL;
+            this.javaVersions = GameProtocol.getJavaVersions();
+            this.javaProtocol = GameProtocol.getJavaProtocolVersion();
         }
     }
 
@@ -234,47 +356,90 @@ public class DumpInfo {
     public static class LogsInfo {
         private String link;
 
-        public LogsInfo() {
+        public LogsInfo(GeyserImpl geyser) {
             try {
                 Map<String, String> fields = new HashMap<>();
-                fields.put("content", FileUtils.readAllLines(GeyserImpl.getInstance().getBootstrap().getLogsPath()).collect(Collectors.joining("\n")));
+                fields.put("content", FileUtils.readAllLines(geyser.getBootstrap().getLogsPath()).collect(Collectors.joining("\n")));
 
-                JsonNode logData = GeyserImpl.JSON_MAPPER.readTree(WebUtils.postForm("https://api.mclo.gs/1/log", fields));
+                JsonObject logData = new JsonParser().parse(WebUtils.postForm("https://api.mclo.gs/1/log", fields)).getAsJsonObject();
 
-                this.link = logData.get("url").textValue();
+                this.link = logData.get("url").getAsString();
             } catch (IOException ignored) { }
         }
     }
 
-    @AllArgsConstructor
-    @Getter
-    public static class HashInfo {
-        private final String md5Hash;
-        private final String sha256Hash;
-    }
-
-    @Getter
-    public static class RamInfo {
-        private final long free;
-        private final long total;
-        private final long max;
-
-        RamInfo() {
-            this.free = Runtime.getRuntime().freeMemory() / MEGABYTE;
-            this.total = Runtime.getRuntime().totalMemory() / MEGABYTE;
-            this.max = Runtime.getRuntime().maxMemory() / MEGABYTE;
+    public record RamInfo(long free, long total, long max) {
+        public RamInfo() {
+            this(Runtime.getRuntime().freeMemory() / MEGABYTE,
+                    Runtime.getRuntime().totalMemory() / MEGABYTE,
+                    Runtime.getRuntime().maxMemory() / MEGABYTE);
         }
     }
 
     /**
      * E.G. `-Xmx1024M` - all runtime JVM flags on this machine
      */
-    @Getter
-    public static class FlagsInfo {
-        private final List<String> flags;
+    public record FlagsInfo(List<String> flags) {
+        public FlagsInfo() {
+            this(ManagementFactory.getRuntimeMXBean().getInputArguments());
+        }
+    }
 
-        FlagsInfo() {
-            this.flags = ManagementFactory.getRuntimeMXBean().getInputArguments();
+    public record ExtensionInfo(boolean enabled, String name, String version, String apiVersion, String main, List<String> authors) {
+    }
+
+    public record GitInfo(String buildNumber, @SerializedName("git.commit.id.abbrev") String commitHashAbbrev, @SerializedName("git.commit.id") String commitHash,
+                              @SerializedName("git.branch") String branchName, @SerializedName("git.remote.origin.url") String originUrl) {
+    }
+
+    public record PackInfo(String name, String type, String size) {
+
+        public PackInfo(ResourcePackHolder holder) {
+            this(holder.pack().manifest().header().name(),
+                holder.codec().getClass().getSimpleName(),
+                String.format("%.2f MB", holder.codec().size() / 1_000_000F));
+        }
+    }
+
+    public record MappingInfo(int customBlocks, int customSkulls, int customItems, int customEntities) {
+    }
+
+    /**
+     * What each running signaling mode sends to joining players, see {@link NetherNetServer#advertised()}. Public
+     * addresses are censored unless the dump is full. The NXS instance id is not secret and stays readable.
+     *
+     * @param builtin null when built-in signaling is not running
+     * @param nxs null when the external signaling service is not running
+     */
+    public record NetherNetInfo(@Nullable Builtin builtin, @Nullable Nxs nxs) {
+        static NetherNetInfo of(NetherNetServer.Advertised advertised) {
+            NetherNetServer.Advertised.Builtin builtin = advertised.builtin();
+            ProviderClient.PublishedEndpoints published = advertised.nxs() == null ? null : advertised.nxs().published();
+            return new NetherNetInfo(
+                builtin == null ? null : new Builtin(censor(builtin.configured()), builtin.stun(), censor(builtin.discovered())),
+                advertised.nxs() == null ? null : new Nxs(published != null, advertised.nxs().instanceId(),
+                    advertised.nxs().clockOffsetMillis(),
+                    published == null ? List.of() : censor(published.endpoints()),
+                    published == null ? List.of() : published.assistedFamilies().stream().sorted().toList()));
+        }
+
+        private static List<String> censor(List<InetSocketAddress> addresses) {
+            return addresses.stream().map(AsteriskSerializer::censor).toList();
+        }
+
+        /**
+         * @param advertised the configured addresses. When empty, this machine's own addresses and {@code discovered}
+         */
+        public record Builtin(List<String> advertised, boolean stunDiscovery, List<String> discovered) {
+        }
+
+        /**
+         * @param confirmed whether the service has confirmed {@code addresses}
+         * @param instanceId the id the service knows this server by, null until registered
+         * @param clockOffsetMillis the service's clock minus this machine's, which refuses requests when too far off
+         */
+        public record Nxs(boolean confirmed, @Nullable String instanceId, long clockOffsetMillis, List<String> addresses,
+                          List<Integer> assistedFamilies) {
         }
     }
 }

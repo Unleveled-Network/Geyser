@@ -25,25 +25,38 @@
 
 package org.geysermc.geyser.translator.protocol.bedrock;
 
-import com.nukkitx.protocol.bedrock.packet.SetLocalPlayerAsInitializedPacket;
-import org.geysermc.geyser.session.auth.AuthType;
+import org.cloudburstmc.protocol.bedrock.packet.SetLocalPlayerAsInitializedPacket;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.api.event.bedrock.SessionJoinEvent;
+import org.geysermc.geyser.api.network.AuthType;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.InventoryUtils;
 import org.geysermc.geyser.util.LoginEncryptionUtils;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.ServerboundPlayerLoadedPacket;
 
 @Translator(packet = SetLocalPlayerAsInitializedPacket.class)
 public class BedrockSetLocalPlayerAsInitializedTranslator extends PacketTranslator<SetLocalPlayerAsInitializedPacket> {
     @Override
     public void translate(GeyserSession session, SetLocalPlayerAsInitializedPacket packet) {
-        if (session.getPlayerEntity().getGeyserId() == packet.getRuntimeEntityId()) {
+        if (session.getPlayerEntity().geyserId() == packet.getRuntimeEntityId()) {
             if (!session.getUpstream().isInitialized()) {
                 session.getUpstream().setInitialized(true);
 
-                if (session.getRemoteAuthType() == AuthType.ONLINE) {
+                if (session.remoteServer().authType() == AuthType.ONLINE) {
                     if (!session.isLoggedIn()) {
-                        LoginEncryptionUtils.buildAndShowLoginWindow(session);
+                        if (session.getGeyser().config().savedUserLogins().contains(session.bedrockUsername())) {
+                            if (session.getGeyser().authChainFor(session.bedrockUsername()) == null) {
+                                LoginEncryptionUtils.buildAndShowConsentWindow(session);
+                            } else {
+                                // If the auth chain is not null and we're here, then it expired
+                                // and the expiration form has been cached
+                                session.getFormCache().resendAllForms();
+                            }
+                        } else {
+                            LoginEncryptionUtils.buildAndShowLoginWindow(session);
+                        }
                     }
                     // else we were able to log the user in
                 }
@@ -52,12 +65,15 @@ public class BedrockSetLocalPlayerAsInitializedTranslator extends PacketTranslat
                     session.getEntityCache().updateBossBars();
 
                     // Double sigh - https://github.com/GeyserMC/Geyser/issues/2677 - as of Bedrock 1.18
-                    if (session.getOpenInventory() != null && session.getOpenInventory().isPending()) {
-                        InventoryUtils.openInventory(session, session.getOpenInventory());
+                    if (session.getInventoryHolder() != null) {
+                        InventoryUtils.openPendingInventory(session);
                     }
 
                     // What am I to expect - as of Bedrock 1.18
                     session.getFormCache().resendAllForms();
+
+                    GeyserImpl.getInstance().eventBus().fire(new SessionJoinEvent(session));
+                    session.sendDownstreamGamePacket(ServerboundPlayerLoadedPacket.INSTANCE);
                 }
             }
         }

@@ -25,28 +25,52 @@
 
 package org.geysermc.geyser.translator.protocol.bedrock;
 
-import com.nukkitx.protocol.bedrock.packet.ServerSettingsRequestPacket;
-import com.nukkitx.protocol.bedrock.packet.ServerSettingsResponsePacket;
+import org.cloudburstmc.protocol.bedrock.packet.ServerSettingsRequestPacket;
+import org.cloudburstmc.protocol.bedrock.packet.ServerSettingsResponsePacket;
+import org.cloudburstmc.protocol.bedrock.packet.SetDifficultyPacket;
+import org.geysermc.cumulus.form.CustomForm;
+import org.geysermc.cumulus.form.impl.FormDefinitions;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.FormCache;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.SettingsUtils;
-import org.geysermc.cumulus.CustomForm;
+import org.geysermc.mcprotocollib.protocol.data.game.setting.Difficulty;
 
 import java.util.concurrent.TimeUnit;
 
 @Translator(packet = ServerSettingsRequestPacket.class)
 public class BedrockServerSettingsRequestTranslator extends PacketTranslator<ServerSettingsRequestPacket> {
+    private final FormDefinitions formDefinitions = FormDefinitions.instance();
+
     @Override
     public void translate(GeyserSession session, ServerSettingsRequestPacket packet) {
-        CustomForm window = SettingsUtils.buildForm(session);
-        int windowId = session.getFormCache().addForm(window);
+        // UUID is null when we're not logged in, which causes the hasPermission check to fail
+        if (!session.isLoggedIn() || !session.getFormCache().allowSettingsRequest()) {
+            return;
+        }
+
+        // Peaceful difficulty allows always eating food - hence, we just do not send it to Bedrock.
+        // However, in order for server settings to show it properly, let's revert while we are in the menu!
+        if (session.getWorldCache().getDifficulty() == Difficulty.PEACEFUL) {
+            SetDifficultyPacket setDifficultyPacket = new SetDifficultyPacket();
+            setDifficultyPacket.setDifficulty(Difficulty.PEACEFUL.ordinal());
+            session.sendUpstreamPacket(setDifficultyPacket);
+        }
+
+        FormCache formCache = session.getFormCache();
+        formCache.closeForms();
+
+        CustomForm form = SettingsUtils.buildForm(session);
+        int formId = formCache.addForm(form);
+
+        String jsonData = formDefinitions.codecFor(form).jsonData(form);
 
         // Fixes https://bugs.mojang.com/browse/MCPE-94012 because of the delay
         session.scheduleInEventLoop(() -> {
             ServerSettingsResponsePacket serverSettingsResponsePacket = new ServerSettingsResponsePacket();
-            serverSettingsResponsePacket.setFormData(window.getJsonData());
-            serverSettingsResponsePacket.setFormId(windowId);
+            serverSettingsResponsePacket.setFormData(jsonData);
+            serverSettingsResponsePacket.setFormId(formId);
             session.sendUpstreamPacket(serverSettingsResponsePacket);
         }, 1, TimeUnit.SECONDS);
     }

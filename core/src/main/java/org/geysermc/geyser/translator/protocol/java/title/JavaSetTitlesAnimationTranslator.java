@@ -25,8 +25,8 @@
 
 package org.geysermc.geyser.translator.protocol.java.title;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.title.ClientboundSetTitlesAnimationPacket;
-import com.nukkitx.protocol.bedrock.packet.SetTitlePacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.title.ClientboundSetTitlesAnimationPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SetTitlePacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
@@ -36,12 +36,19 @@ public class JavaSetTitlesAnimationTranslator extends PacketTranslator<Clientbou
 
     @Override
     public void translate(GeyserSession session, ClientboundSetTitlesAnimationPacket packet) {
+        int fadeInTime = packet.getFadeIn();
+        int stayTime = packet.getStay();
+        int fadeOutTime = packet.getFadeOut();
+        session.getWorldCache().setTitleTimes(fadeInTime, stayTime, fadeOutTime);
+        // We need a tick rate multiplier as otherwise the timings are incorrect on different tick rates because
+        // bedrock can only run at 20 TPS (50ms = 1 tick)
+        int tickrateMultiplier = Math.round(session.getMillisecondsPerTick()) / 50;
         SetTitlePacket titlePacket = new SetTitlePacket();
         titlePacket.setType(SetTitlePacket.Type.TIMES);
         titlePacket.setText("");
-        titlePacket.setFadeInTime(packet.getFadeIn());
-        titlePacket.setFadeOutTime(packet.getFadeOut());
-        titlePacket.setStayTime(packet.getStay());
+        titlePacket.setFadeInTime(fadeInTime * tickrateMultiplier);
+        titlePacket.setFadeOutTime(fadeOutTime * tickrateMultiplier);
+        titlePacket.setStayTime(stayTime * tickrateMultiplier);
         titlePacket.setXuid("");
         titlePacket.setPlatformOnlineId("");
         session.sendUpstreamPacket(titlePacket);

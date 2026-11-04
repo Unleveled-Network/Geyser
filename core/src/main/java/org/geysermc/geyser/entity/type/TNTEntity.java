@@ -25,27 +25,23 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import com.nukkitx.protocol.bedrock.packet.SetEntityDataPacket;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
 
 public class TNTEntity extends Entity implements Tickable {
     private int currentTick;
 
-    public TNTEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public TNTEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setFuseLength(IntEntityMetadata entityMetadata) {
-        currentTick = ((IntEntityMetadata) entityMetadata).getPrimitiveValue();
+        currentTick = entityMetadata.getPrimitiveValue();
         setFlag(EntityFlag.IGNITED, true);
-        dirtyMetadata.put(EntityData.FUSE_LENGTH, currentTick);
+        metadata.put(EntityDataTypes.FUSE_TIME, currentTick);
     }
 
     @Override
@@ -56,11 +52,11 @@ public class TNTEntity extends Entity implements Tickable {
         }
 
         if (currentTick % 5 == 0) {
-            dirtyMetadata.put(EntityData.FUSE_LENGTH, currentTick);
+            metadata.put(EntityDataTypes.FUSE_TIME, currentTick);
 
             SetEntityDataPacket packet = new SetEntityDataPacket();
             packet.setRuntimeEntityId(geyserId);
-            packet.getMetadata().put(EntityData.FUSE_LENGTH, currentTick);
+            packet.getMetadata().put(EntityDataTypes.FUSE_TIME, currentTick);
             session.sendUpstreamPacket(packet);
         }
         currentTick--;

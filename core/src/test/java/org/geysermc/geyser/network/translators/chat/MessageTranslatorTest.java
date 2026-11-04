@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2025 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,35 +25,69 @@
 
 package org.geysermc.geyser.network.translators.chat;
 
-import com.github.steveice10.mc.protocol.data.DefaultComponentSerializer;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.geysermc.geyser.translator.text.MessageTranslator;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class MessageTranslatorTest {
 
-    private Map<String, String> messages = new HashMap<>();
+    private final Map<Component, String> messages = new HashMap<>();
 
-    @Before
-    public void setUp() throws Exception {
-        messages.put("{\"text\":\"\",\"extra\":[{\"text\":\"DoctorMad9952 joined the game\",\"color\":\"yellow\"}]}",
-                "§r§eDoctorMad9952 joined the game");
+    @BeforeAll
+    public void setUp() {
+        messages.put(Component.text("").append(Component.text("DoctorMad9952 joined the game").color(NamedTextColor.YELLOW)),
+            "§r§eDoctorMad9952 joined the game");
 
-        messages.put("{\"text\":\"\",\"extra\":[\"Plugins (3): \",{\"text\":\"WorldEdit\",\"color\":\"green\"},{\"text\":\", \",\"color\":\"white\"},{\"text\":\"ViaVersion\",\"color\":\"green\"},{\"text\":\", \",\"color\":\"white\"},{\"text\":\"Geyser-Spigot\",\"color\":\"green\"}]}",
-                "Plugins (3): §r§aWorldEdit§r§f, §r§aViaVersion§r§f, §r§aGeyser-Spigot");
+        messages.put(Component.text("")
+                .append(Component.text("Plugins (3): "))
+                .append(Component.text("WorldEdit").color(NamedTextColor.GREEN))
+                .append(Component.text(", ").color(NamedTextColor.WHITE))
+                .append(Component.text("ViaVersion").color(NamedTextColor.GREEN))
+                .append(Component.text(", ").color(NamedTextColor.WHITE))
+                .append(Component.text("Geyser-Spigot").color(NamedTextColor.GREEN)),
+            "§rPlugins (3): §aWorldEdit§r§f, §r§aViaVersion§r§f, §r§aGeyser-Spigot");
 
         // RGB downgrade test
-        messages.put("{\"extra\":[{\"text\":\"          \"},{\"color\":\"gold\",\"text\":\"The \"},{\"color\":\"#E14248\",\"obfuscated\":true,\"text\":\"||\"},{\"color\":\"#3AA9FF\",\"bold\":true,\"text\":\"CubeCraft\"},{\"color\":\"#E14248\",\"obfuscated\":true,\"text\":\"||\"},{\"color\":\"gold\",\"text\":\" Network \"},{\"color\":\"green\",\"text\":\"[1.8/1.9+]\\n         \"},{\"color\":\"#f5e342\",\"text\":\"✦ \"},{\"color\":\"#b042f5\",\"bold\":true,\"text\":\"N\"},{\"color\":\"#c142f5\",\"bold\":true,\"text\":\"E\"},{\"color\":\"#d342f5\",\"bold\":true,\"text\":\"W\"},{\"color\":\"#e442f5\",\"bold\":true,\"text\":\":\"},{\"color\":\"#f542f5\",\"bold\":true,\"text\":\" \"},{\"color\":\"#bcf542\",\"bold\":true,\"text\":\"A\"},{\"color\":\"#acee3f\",\"bold\":true,\"text\":\"M\"},{\"color\":\"#9ce73c\",\"bold\":true,\"text\":\"O\"},{\"color\":\"#8ce039\",\"bold\":true,\"text\":\"N\"},{\"color\":\"#7cd936\",\"bold\":true,\"text\":\"G\"},{\"color\":\"#6cd233\",\"bold\":true,\"text\":\" \"},{\"color\":\"#5ccb30\",\"bold\":true,\"text\":\"S\"},{\"color\":\"#4cc42d\",\"bold\":true,\"text\":\"L\"},{\"color\":\"#3cbd2a\",\"bold\":true,\"text\":\"I\"},{\"color\":\"#2cb627\",\"bold\":true,\"text\":\"M\"},{\"color\":\"#1caf24\",\"bold\":true,\"text\":\"E\"},{\"color\":\"#0ca821\",\"bold\":true,\"text\":\"S\"},{\"color\":\"#f5e342\",\"text\":\" \"},{\"color\":\"#6d7c87\",\"text\":\"(kinda sus) \"},{\"color\":\"#f5e342\",\"text\":\"✦\"}],\"text\":\"\"}",
-                "          §r§6The §r§c§k||§r§b§lCubeCraft§r§c§k||§r§6 Network §r§a[1.8/1.9+]\n" +
-                        "         §r§e✦ §r§d§lN§r§d§lE§r§d§lW§r§d§l:§r§d§l §r§e§lA§r§e§lM§r§e§lO§r§a§lN§r§a§lG§r§a§l §r§a§lS§r§2§lL§r§2§lI§r§2§lM§r§2§lE§r§2§lS§r§e §r§b(kinda sus) §r§e✦");
+        messages.put(Component.text("")
+                .append(Component.text("          "))
+                .append(Component.text("The ").color(NamedTextColor.GOLD))
+                .append(Component.text("||").color(TextColor.color(0xE14248)).decorate(TextDecoration.OBFUSCATED))
+                .append(Component.text("CubeCraft").color(TextColor.color(0x3AA9FF)).decorate(TextDecoration.BOLD))
+                .append(Component.text("||").color(TextColor.color(0xE14248)).decorate(TextDecoration.OBFUSCATED))
+                .append(Component.text(" Network ").color(NamedTextColor.GOLD))
+                .append(Component.text("[1.8/1.9+]").color(NamedTextColor.GREEN)),
+            "§r          §6The §r§c§k||§r§b§lCubeCraft§r§c§k||§r§6 Network §r§a[1.8/1.9+]");
 
         // Color code format resetting
-        messages.put("{\"text\":\"\",\"extra\":[{\"text\":\"\",\"extra\":[{\"text\":\"[\",\"color\":\"gray\"},{\"text\":\"H\",\"color\":\"yellow\"},{\"text\":\"]\",\"color\":\"gray\"},{\"text\":\" \",\"color\":\"white\"},{\"text\":\"GUEST\",\"color\":\"#b7b7b7\",\"bold\":true}]},{\"text\":\"\",\"extra\":[{\"text\":\" \",\"bold\":true},{\"text\":\"»\",\"color\":\"blue\"},{\"text\":\" \",\"color\":\"gray\"}]},{\"text\":\"\",\"extra\":[{\"text\":\"rtm516\",\"color\":\"white\"},{\"text\":\": \",\"color\":\"gray\"},{\"text\":\"\",\"color\":\"white\"}]},{\"text\":\"\",\"extra\":[{\"text\":\"This is an amazing bedrock test message\",\"color\":\"white\"}]}]}\n",
-                "§r§7[§r§eH§r§7]§r§f §r§7§lGUEST§r§l §r§9»§r§7 §r§frtm516§r§7: §r§fThis is an amazing bedrock test message");
+        messages.put(Component.text("")
+                .append(Component.text("")
+                    .append(Component.text("[").color(NamedTextColor.GRAY))
+                    .append(Component.text("H").color(NamedTextColor.YELLOW))
+                    .append(Component.text("]").color(NamedTextColor.GRAY))
+                    .append(Component.text(" ").color(NamedTextColor.WHITE))
+                    .append(Component.text("GUEST").color(TextColor.color(0xB7B7B7)).decorate(TextDecoration.BOLD)))
+                .append(Component.text("")
+                    // I present to you: BOLD SPACE
+                    .append(Component.text(" ").decorate(TextDecoration.BOLD))
+                    .append(Component.text("»").color(NamedTextColor.BLUE))
+                    .append(Component.text(" ").color(NamedTextColor.GRAY)))
+                .append(Component.text("")
+                    .append(Component.text("rtm516").color(NamedTextColor.WHITE))
+                    .append(Component.text(": ").color(NamedTextColor.GRAY))
+                    .append(Component.text("").color(NamedTextColor.WHITE)))
+                .append(Component.text("")
+                    .append(Component.text("This is an amazing bedrock test message").color(NamedTextColor.WHITE))),
+            "§r§7[§r§eH§r§7]§r§f §r§7§lGUEST§r§l §r§9»§r§7 §r§frtm516§r§7: §r§fThis is an amazing bedrock test message");
 
         // Test translation and positional arguments
         // Disabled due to not having an Geyser instance, hence it fails
@@ -63,37 +97,57 @@ public class MessageTranslatorTest {
         //messages.put("{\"translate\":\"commands.give.success.single\",\"with\":[{\"text\":\"1\"},{\"color\":\"yellow\",\"hoverEvent\":{\"action\":\"show_item\",\"contents\":{\"id\":\"minecraft:player_head\",\"tag\":\"{SkullOwner:\\\"Camotoy\\\"}\"}},\"translate\":\"chat.square_brackets\",\"with\":[{\"extra\":[{\"translate\":\"block.minecraft.player_head.named\",\"with\":[{\"text\":\"Camotoy\"}]}],\"text\":\"\"}]},{\"insertion\":\"DoctorMad9952\",\"clickEvent\":{\"action\":\"suggest_command\",\"value\":\"/tell DoctorMad9952 \"},\"hoverEvent\":{\"action\":\"show_entity\",\"contents\":{\"type\":\"minecraft:player\",\"id\":\"8d712993-d208-3dac-b4d8-f2ce7e7d2b75\",\"name\":{\"text\":\"DoctorMad9952\"}}},\"extra\":[{\"text\":\"DoctorMad9952\"}],\"text\":\"\"}]}",
         //        "Gave 1 §r§e[Camotoy's Head]§r to DoctorMad9952");
 
+        // Newline color restore
+        messages.put(Component.text(" Contribute to a weekly community goal.\n All participants will receive a reward\n and the top 3 will get extra bonus prizes!").color(TextColor.color(0xF7DC77)),
+            """
+                §r§e Contribute to a weekly community goal.
+                §e All participants will receive a reward
+                §e and the top 3 will get extra bonus prizes!""");
+
+        // Escape curly braces in translatable strings (make MessageFormat ignore them)
+        messages.put(Component.translatable("tt{tt%stt}tt").arguments(Component.text("AA")), "§rtt{ttAAtt}tt");
+        messages.put(Component.translatable("tt{'tt%stt'{tt").arguments(Component.text("AA")), "§rtt{'ttAAtt'{tt");
+        messages.put(Component.translatable("tt{''{tt"), "§rtt{''{tt");
+        messages.put(Component.translatable("tt{{''}}tt"), "§rtt{{''}}tt");
+
+        // Remove duplicated resets, tail resets and dangling paragraph sign
+        messages.put(Component.text("abc§r").color(NamedTextColor.YELLOW), "§r§eabc");
+        messages.put(Component.text("abc§r§r").color(NamedTextColor.YELLOW), "§r§eabc");
+        messages.put(Component.text("abc§rd").color(NamedTextColor.YELLOW), "§r§eabc§rd");
+        messages.put(Component.text("abc§r§rd").color(NamedTextColor.YELLOW), "§r§eabc§rd");
+        messages.put(Component.text("abc§rde").color(NamedTextColor.YELLOW), "§r§eabc§rde");
+        messages.put(Component.text("abc§r§rde").color(NamedTextColor.YELLOW), "§r§eabc§rde");
+        messages.put(Component.text("abc§").color(NamedTextColor.YELLOW), "§r§eabc");
+
+        // All newlines
+        messages.put(Component.text("\n\n\n\n"), "§r\n\n\n\n");
+        // Empty
+        messages.put(Component.empty(), "");
+        // Reset before message
+        messages.put(Component.text("§r§eGame Selector"), "§r§eGame Selector");
+        // Duplicate/redundant reset removal
+        messages.put(Component.text("§r§r§d[Test]§r"), "§r§d[Test]");
+
         MessageTranslator.init();
     }
 
+    // TODO should be parameterised test
     @Test
     public void convertMessage() {
-        for (Map.Entry<String, String> entry : messages.entrySet()) {
+        for (Map.Entry<Component, String> entry : messages.entrySet()) {
             String bedrockMessage = MessageTranslator.convertMessage(entry.getKey(), "en_US");
-            Assert.assertEquals("Translation of messages is incorrect", entry.getValue(), bedrockMessage);
+            Assertions.assertEquals(entry.getValue(), bedrockMessage, "Translation of messages is incorrect");
         }
     }
 
     @Test
-    public void convertMessageLenient() {
-        Assert.assertEquals("All newline message is not handled properly", "\n\n\n\n", MessageTranslator.convertMessageLenient("\n\n\n\n"));
-        Assert.assertEquals("Empty message is not handled properly", "", MessageTranslator.convertMessageLenient(""));
-        Assert.assertEquals("Reset before message is not handled properly", "§r§eGame Selector", MessageTranslator.convertMessageLenient("§r§eGame Selector"));
-        Assert.assertEquals("Unimplemented formatting chars not stripped", "Bold Underline", MessageTranslator.convertMessageLenient("§m§nBold Underline"));
-    }
-
-    @Test
-    public void convertToPlainText() {
-        Assert.assertEquals("JSON message is not handled properly", "Many colors here", MessageTranslator.convertToPlainText("{\"extra\":[{\"color\":\"red\",\"text\":\"M\"},{\"color\":\"gold\",\"text\":\"a\"},{\"color\":\"yellow\",\"text\":\"n\"},{\"color\":\"green\",\"text\":\"y \"},{\"color\":\"aqua\",\"text\":\"c\"},{\"color\":\"dark_purple\",\"text\":\"o\"},{\"color\":\"red\",\"text\":\"l\"},{\"color\":\"gold\",\"text\":\"o\"},{\"color\":\"yellow\",\"text\":\"r\"},{\"color\":\"green\",\"text\":\"s \"},{\"color\":\"aqua\",\"text\":\"h\"},{\"color\":\"dark_purple\",\"text\":\"e\"},{\"color\":\"red\",\"text\":\"r\"},{\"color\":\"gold\",\"text\":\"e\"}],\"text\":\"\"}", "en_US"));
-        Assert.assertEquals("Legacy formatted message is not handled properly (Colors)", "Many colors here", MessageTranslator.convertToPlainText("§cM§6a§en§ay §bc§5o§cl§6o§er§as §bh§5e§cr§6e", "en_US"));
-        Assert.assertEquals("Legacy formatted message is not handled properly (Style)", "Obf Bold Strikethrough Underline Italic Reset", MessageTranslator.convertToPlainText("§kObf §lBold §mStrikethrough §nUnderline §oItalic §rReset", "en_US"));
-        Assert.assertEquals("Valid lenient JSON is not handled properly", "Strange", MessageTranslator.convertToPlainText("§rStrange", "en_US"));
-        Assert.assertEquals("Empty message is not handled properly", "", MessageTranslator.convertToPlainText("", "en_US"));
-        Assert.assertEquals("Whitespace is not preserved", "     ", MessageTranslator.convertToPlainText("     ", "en_US"));
-    }
-
-    @Test
-    public void testNullTextPacket() {
-        DefaultComponentSerializer.get().deserialize("null");
+    public void convertIncomingToPlainText() {
+        Assertions.assertEquals("Many colors here", MessageTranslator.convertToPlainTextLenient("{\"extra\":[{\"color\":\"red\",\"text\":\"M\"},{\"color\":\"gold\",\"text\":\"a\"},{\"color\":\"yellow\",\"text\":\"n\"},{\"color\":\"green\",\"text\":\"y \"},{\"color\":\"aqua\",\"text\":\"c\"},{\"color\":\"dark_purple\",\"text\":\"o\"},{\"color\":\"red\",\"text\":\"l\"},{\"color\":\"gold\",\"text\":\"o\"},{\"color\":\"yellow\",\"text\":\"r\"},{\"color\":\"green\",\"text\":\"s \"},{\"color\":\"aqua\",\"text\":\"h\"},{\"color\":\"dark_purple\",\"text\":\"e\"},{\"color\":\"red\",\"text\":\"r\"},{\"color\":\"gold\",\"text\":\"e\"}],\"text\":\"\"}", "en_US"), "JSON message is not handled properly");
+        Assertions.assertEquals("Many colors here", MessageTranslator.convertIncomingToPlainText("§cM§6a§en§ay §bc§5o§cl§6o§er§as §bh§5e§cr§6e"), "Legacy formatted message is not handled properly (Colors)");
+        Assertions.assertEquals("Many colors here", MessageTranslator.convertToPlainTextLenient("§cM§6a§en§ay §bc§5o§cl§6o§er§as §bh§5e§cr§6e", "en_US"), "Legacy formatted message is not handled properly (Colors)");
+        Assertions.assertEquals("Obf Bold Strikethrough Underline Italic Reset", MessageTranslator.convertToPlainTextLenient("§kObf §lBold §mStrikethrough §nUnderline §oItalic §rReset", "en_US"), "Legacy formatted message is not handled properly (Style)");
+        Assertions.assertEquals("Strange", MessageTranslator.convertToPlainTextLenient("§rStrange", "en_US"), "Valid lenient JSON is not handled properly");
+        Assertions.assertEquals("", MessageTranslator.convertToPlainTextLenient("", "en_US"), "Empty message is not handled properly");
+        Assertions.assertEquals("     ", MessageTranslator.convertToPlainTextLenient("     ", "en_US"), "Whitespace is not preserved");
     }
 }

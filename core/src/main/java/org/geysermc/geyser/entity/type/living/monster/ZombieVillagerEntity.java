@@ -25,41 +25,62 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.VillagerData;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.merchant.VillagerEntity;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.geyser.util.InteractiveTag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.VillagerData;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class ZombieVillagerEntity extends ZombieEntity {
-    private boolean isTransforming;
 
-    public ZombieVillagerEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ZombieVillagerEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setTransforming(BooleanEntityMetadata entityMetadata) {
-        isTransforming = entityMetadata.getPrimitiveValue();
-        setFlag(EntityFlag.IS_TRANSFORMING, isTransforming);
+        setFlag(EntityFlag.IS_TRANSFORMING, entityMetadata.getPrimitiveValue());
         setFlag(EntityFlag.SHAKING, isShaking());
     }
 
     public void setZombieVillagerData(EntityMetadata<VillagerData, ?> entityMetadata) {
         VillagerData villagerData = entityMetadata.getValue();
-        dirtyMetadata.put(EntityData.VARIANT, VillagerEntity.VILLAGER_PROFESSIONS.get(villagerData.getProfession())); // Actually works properly with the OptionalPack
-        dirtyMetadata.put(EntityData.MARK_VARIANT, VillagerEntity.VILLAGER_REGIONS.get(villagerData.getType()));
+        metadata.put(EntityDataTypes.VARIANT, VillagerEntity.getBedrockProfession(villagerData.getProfession())); // Actually works properly with the OptionalPack
+        metadata.put(EntityDataTypes.MARK_VARIANT, VillagerEntity.getBedrockRegion(villagerData.getType()));
         // Used with the OptionalPack
-        dirtyMetadata.put(EntityData.TRADE_TIER, villagerData.getLevel() - 1);
+        metadata.put(EntityDataTypes.TRADE_TIER, villagerData.getLevel() - 1);
     }
 
     @Override
     protected boolean isShaking() {
-        return isTransforming || super.isShaking();
+        return getFlag(EntityFlag.IS_TRANSFORMING) || super.isShaking();
+    }
+
+    @NonNull
+    @Override
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (itemInHand.is(Items.GOLDEN_APPLE)) {
+            return InteractiveTag.CURE;
+        } else {
+            return super.testMobInteraction(hand, itemInHand);
+        }
+    }
+
+    @NonNull
+    @Override
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (itemInHand.is(Items.GOLDEN_APPLE)) {
+            // The client doesn't know if the entity has weakness as that's not usually sent over the network
+            return InteractionResult.CONSUME;
+        } else {
+            return super.mobInteract(hand, itemInHand);
+        }
     }
 }

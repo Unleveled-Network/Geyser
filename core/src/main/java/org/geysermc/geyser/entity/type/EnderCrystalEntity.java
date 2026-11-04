@@ -25,22 +25,18 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.Position;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.math.vector.Vector3i;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
+import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
 
 import java.util.Optional;
-import java.util.UUID;
 
 public class EnderCrystalEntity extends Entity {
 
-    public EnderCrystalEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public EnderCrystalEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
@@ -50,15 +46,14 @@ public class EnderCrystalEntity extends Entity {
         setFlag(EntityFlag.FIRE_IMMUNE, true);
     }
 
-    public void setBlockTarget(EntityMetadata<Optional<Position>, ?> entityMetadata) {
+    public void setBlockTarget(EntityMetadata<Optional<Vector3i>, ?> entityMetadata) {
         // Show beam
         // Usually performed client-side on Bedrock except for Ender Dragon respawn event
-        Optional<Position> optionalPos = entityMetadata.getValue();
+        Optional<Vector3i> optionalPos = entityMetadata.getValue();
         if (optionalPos.isPresent()) {
-            Position pos = optionalPos.get();
-            dirtyMetadata.put(EntityData.BLOCK_TARGET, Vector3i.from(pos.getX(), pos.getY(), pos.getZ()));
+            metadata.put(EntityDataTypes.BLOCK_TARGET_POS, optionalPos.get());
         } else {
-            dirtyMetadata.put(EntityData.BLOCK_TARGET, Vector3i.ZERO);
+            metadata.put(EntityDataTypes.BLOCK_TARGET_POS, Vector3i.ZERO);
         }
     }
 }

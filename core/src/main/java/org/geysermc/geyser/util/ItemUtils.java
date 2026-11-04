@@ -25,52 +25,52 @@
 
 package org.geysermc.geyser.util;
 
-import com.github.steveice10.opennbt.tag.builtin.*;
-import org.geysermc.geyser.session.GeyserSession;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.enchantment.Enchantment;
+import org.geysermc.geyser.item.enchantment.EnchantmentComponent;
+import org.geysermc.geyser.item.type.FishingRodItem;
+import org.geysermc.geyser.item.type.Item;
+import org.geysermc.geyser.registry.java.JavaRegistries;
+import org.geysermc.geyser.registry.java.JavaRegistryProvider;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.ItemEnchantments;
 
-public class ItemUtils {
+public final class ItemUtils {
 
-    public static int getEnchantmentLevel(CompoundTag itemNBTData, String enchantmentId) {
-        ListTag enchantments = (itemNBTData == null ? null : itemNBTData.get("Enchantments"));
-        if (enchantments != null) {
-            int enchantmentLevel = 0;
-            for (Tag tag : enchantments) {
-                CompoundTag enchantment = (CompoundTag) tag;
-                StringTag enchantId = enchantment.get("id");
-                if (enchantId.getValue().equals(enchantmentId)) {
-                    enchantmentLevel = (int) ((ShortTag) enchantment.get("lvl")).getValue();
-                }
-            }
-            return enchantmentLevel;
+    public static boolean hasEffect(JavaRegistryProvider registries, @Nullable GeyserItemStack itemStack, EnchantmentComponent component) {
+        if (itemStack == null || itemStack.isEmpty()) {
+            return false;
         }
-        return 0;
+
+        ItemEnchantments enchantmentData = itemStack.getComponent(DataComponentTypes.ENCHANTMENTS);
+        if (enchantmentData == null) {
+            return false;
+        }
+
+        for (Integer id : enchantmentData.getEnchantments().keySet()) {
+            Enchantment enchantment = JavaRegistries.ENCHANTMENT.getOrThrow(registries, id);
+            if (enchantment.effects().contains(component)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * @return the correct Bedrock durability for this item.
      */
-    public static int getCorrectBedrockDurability(GeyserSession session, int javaId, int original) {
-        if (javaId == session.getItemMappings().getStoredItems().fishingRod().getJavaId()) {
+    public static int getCorrectBedrockDurability(Item item, int original) {
+        if (item == Items.FISHING_ROD) {
             // Java durability: 64
             // Bedrock durability : 384
             // 384 / 64 = 6
-            return original * 6;
+            return FishingRodItem.getBedrockDamage(original);
         }
         return original;
     }
 
-    /**
-     * @param itemTag the NBT tag of the item
-     * @return the custom name of the item
-     */
-    public static String getCustomName(CompoundTag itemTag) {
-        if (itemTag != null) {
-            if (itemTag.get("display") instanceof CompoundTag displayTag) {
-                if (displayTag.get("Name") instanceof StringTag nameTag) {
-                    return nameTag.getValue();
-                }
-            }
-        }
-        return null;
+    private ItemUtils() {
     }
 }

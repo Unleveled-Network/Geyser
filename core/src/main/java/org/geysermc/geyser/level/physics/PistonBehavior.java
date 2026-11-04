@@ -25,23 +25,26 @@
 
 package org.geysermc.geyser.level.physics;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.util.Locale;
 
 public enum PistonBehavior {
-    NORMAL,
-    BLOCK,
-    DESTROY,
-    PUSH_ONLY;
+    PUSH_PULL,
+    PUSH,
+    POPPED,
+    IMMOVEABLE,
+    IGNORE_ENTITY;
 
-    public static final PistonBehavior[] VALUES = values();
+    private static final PistonBehavior[] VALUES = values();
 
-    public static PistonBehavior getByName(String name) {
+    public static @NonNull PistonBehavior getByName(String name) {
         String upperCase = name.toUpperCase(Locale.ROOT);
         for (PistonBehavior type : VALUES) {
             if (type.name().equals(upperCase)) {
                 return type;
             }
         }
-        return NORMAL;
+        return PUSH_PULL;
     }
 }

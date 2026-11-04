@@ -25,30 +25,30 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.object.Direction;
-import com.github.steveice10.mc.protocol.data.game.entity.type.EntityType;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.math.vector.Vector3i;
-import com.nukkitx.nbt.NbtMap;
-import com.nukkitx.nbt.NbtMapBuilder;
-import com.nukkitx.protocol.bedrock.data.inventory.ItemData;
-import com.nukkitx.protocol.bedrock.packet.BlockEntityDataPacket;
-import com.nukkitx.protocol.bedrock.packet.UpdateBlockPacket;
 import lombok.Getter;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.registry.type.ItemMapping;
+import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.nbt.NbtMap;
+import org.cloudburstmc.nbt.NbtMapBuilder;
+import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
+import org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.translator.inventory.item.ItemTranslator;
-
-import java.util.UUID;
+import org.geysermc.geyser.translator.item.ItemTranslator;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.geyser.util.InventoryUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.type.EntityType;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 
 /**
  * Item frames are an entity in Java but a block entity in Bedrock.
  */
-public class ItemFrameEntity extends Entity {
+public class ItemFrameEntity extends HangingEntity {
     /**
      * Used for getting the Bedrock block position.
      * Blocks deal with integers whereas entities deal with floats.
@@ -57,7 +57,7 @@ public class ItemFrameEntity extends Entity {
     /**
      * Specific block 'state' we are emulating in Bedrock.
      */
-    private final int bedrockRuntimeId;
+    private BlockDefinition blockDefinition;
     /**
      * Rotation of item in frame.
      */
@@ -72,24 +72,15 @@ public class ItemFrameEntity extends Entity {
     @Getter
     private ItemStack heldItem = null;
     /**
-     * Determines if this entity needs updated on the client end/
+     * Determines if this entity needs to be updated on the client end.
      */
     private boolean changed = true;
 
-    public ItemFrameEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, Direction direction) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, 0f);
+    public ItemFrameEntity(EntitySpawnContext context) {
+        super(context);
 
-        NbtMapBuilder blockBuilder = NbtMap.builder()
-                .putString("name", this.definition.entityType() == EntityType.GLOW_ITEM_FRAME ? "minecraft:glow_frame" : "minecraft:frame")
-                .putInt("version", session.getBlockMappings().getBlockStateVersion());
-        NbtMapBuilder statesBuilder = NbtMap.builder()
-                .putInt("facing_direction", direction.ordinal())
-                .putByte("item_frame_map_bit", (byte) 0)
-                .putByte("item_frame_photo_bit", (byte) 0);
-        blockBuilder.put("states", statesBuilder.build());
-
-        bedrockRuntimeId = session.getBlockMappings().getItemFrame(blockBuilder.build());
-        bedrockPosition = Vector3i.from(position.getFloorX(), position.getFloorY(), position.getFloorZ());
+        blockDefinition = buildBlockDefinition(Direction.SOUTH); // Default to SOUTH direction, like on Java - entity metadata should correct this when necessary
+        bedrockPosition = position().toInt();
 
         session.getItemFrameCache().put(bedrockPosition, this);
     }
@@ -107,19 +98,36 @@ public class ItemFrameEntity extends Entity {
         valid = true;
     }
 
+    @Override
+    public void setDirection(Direction direction) {
+        blockDefinition = buildBlockDefinition(direction);
+        changed = true;
+    }
+
     public void setItemInFrame(EntityMetadata<ItemStack, ?> entityMetadata) {
         if (entityMetadata.getValue() != null) {
             this.heldItem = entityMetadata.getValue();
             ItemData itemData = ItemTranslator.translateToBedrock(session, heldItem);
-            ItemMapping mapping = session.getItemMappings().getMapping(entityMetadata.getValue());
-            NbtMapBuilder builder = NbtMap.builder();
+            String customIdentifier = session.getItemMappings().getCustomIdMappings().get(itemData.getDefinition().getRuntimeId());
 
+            NbtMapBuilder builder = NbtMap.builder();
             builder.putByte("Count", (byte) itemData.getCount());
-            if (itemData.getTag() != null) {
-                builder.put("tag", itemData.getTag());
+            NbtMap itemDataTag = itemData.getTag();
+            if (itemDataTag != null) {
+                // Remove custom name that Geyser sets for items due to translating non-"custom_name" components
+                String customName = ItemTranslator.getCustomName(session, heldItem.getDataComponentsPatch(),
+                    session.getItemMappings().getMapping(heldItem), 'f', true, false);
+                if (customName == null) {
+                    // No custom name found, must modify tag if custom name exists
+                    NbtMapBuilder copy = itemDataTag.toBuilder();
+                    copy.remove("display"); // Also removes lore, but, should not matter
+                    itemDataTag = copy.build();
+                }
+
+                builder.put("tag", itemDataTag);
             }
             builder.putShort("Damage", (short) itemData.getDamage());
-            builder.putString("Name", mapping.getBedrockIdentifier());
+            builder.putString("Name", customIdentifier != null ? customIdentifier : session.getItemMappings().getMapping(entityMetadata.getValue()).getBedrockIdentifier());
             NbtMapBuilder tag = getDefaultTag().toBuilder();
             tag.put("Item", builder.build());
             tag.putFloat("ItemDropChance", 1.0f);
@@ -144,11 +152,11 @@ public class ItemFrameEntity extends Entity {
     }
 
     @Override
-    public boolean despawnEntity() {
+    public void despawnEntity() {
         UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
         updateBlockPacket.setDataLayer(0);
         updateBlockPacket.setBlockPosition(bedrockPosition);
-        updateBlockPacket.setRuntimeId(session.getBlockMappings().getBedrockAirId()); //TODO maybe set this to the world block or another item frame?
+        updateBlockPacket.setDefinition(session.getBlockMappings().getBedrockAir()); //TODO maybe set this to the world block or another item frame?
         updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.PRIORITY);
         updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NETWORK);
         updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NEIGHBORS);
@@ -157,7 +165,6 @@ public class ItemFrameEntity extends Entity {
         session.getItemFrameCache().remove(bedrockPosition, this);
 
         valid = false;
-        return true;
     }
 
     private NbtMap getDefaultTag() {
@@ -166,7 +173,7 @@ public class ItemFrameEntity extends Entity {
         builder.putInt("y", bedrockPosition.getY());
         builder.putInt("z", bedrockPosition.getZ());
         builder.putByte("isMovable", (byte) 1);
-        builder.putString("id", this.definition.entityType() == EntityType.GLOW_ITEM_FRAME ? "GlowItemFrame" : "ItemFrame");
+        builder.putString("id", this.javaDefinition.is(EntityType.GLOW_ITEM_FRAME) ? "GlowItemFrame" : "ItemFrame");
         return builder.build();
     }
 
@@ -186,7 +193,7 @@ public class ItemFrameEntity extends Entity {
         UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
         updateBlockPacket.setDataLayer(0);
         updateBlockPacket.setBlockPosition(bedrockPosition);
-        updateBlockPacket.setRuntimeId(bedrockRuntimeId);
+        updateBlockPacket.setDefinition(blockDefinition);
         updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.PRIORITY);
         updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NETWORK);
         updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NEIGHBORS);
@@ -203,6 +210,23 @@ public class ItemFrameEntity extends Entity {
         session.sendUpstreamPacket(blockEntityDataPacket);
 
         changed = false;
+    }
+
+    @Override
+    public InteractionResult interact(Hand hand) {
+        return InventoryUtils.isEmpty(heldItem) && session.getPlayerInventory().getItemInHand(hand).isEmpty() ? InteractionResult.PASS : InteractionResult.SUCCESS;
+    }
+
+    private BlockDefinition buildBlockDefinition(Direction direction) {
+        NbtMapBuilder blockBuilder = NbtMap.builder()
+            .putString("name", this.javaDefinition.is(EntityType.GLOW_ITEM_FRAME) ? "minecraft:glow_frame" : "minecraft:frame");
+        NbtMapBuilder statesBuilder = NbtMap.builder()
+            .putInt("facing_direction", direction.ordinal())
+            .putByte("item_frame_map_bit", (byte) 0)
+            .putByte("item_frame_photo_bit", (byte) 0);
+        blockBuilder.put("states", statesBuilder.build());
+
+        return session.getBlockMappings().getItemFrame(blockBuilder.build());
     }
 
     /**

@@ -25,29 +25,27 @@
 
 package org.geysermc.geyser.entity.type.living.animal.tameable;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
 import lombok.Getter;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.Entity;
-import org.geysermc.geyser.entity.EntityDefinition;
 import org.geysermc.geyser.entity.type.living.animal.AnimalEntity;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
 
 import java.util.Optional;
 import java.util.UUID;
 
-public class TameableEntity extends AnimalEntity {
+public abstract class TameableEntity extends AnimalEntity {
     /**
      * Used in the interactive tag manager to track if the session player owns this entity
      */
     @Getter
     protected long ownerBedrockId;
 
-    public TameableEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public TameableEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setTameableFlags(ByteEntityMetadata entityMetadata) {
@@ -61,17 +59,30 @@ public class TameableEntity extends AnimalEntity {
         // Note: Must be set for wolf collar color to work
         if (entityMetadata.getValue().isPresent()) {
             // Owner UUID of entity
-            Entity entity = session.getEntityCache().getPlayerEntity(entityMetadata.getValue().get());
+            UUID uuid = entityMetadata.getValue().get();
+            Entity entity;
+            if (uuid.equals(session.getPlayerEntity().uuid())) {
+                entity = session.getPlayerEntity();
+            } else {
+                entity = session.getEntityCache().getPlayerEntity(uuid);
+            }
             // Used as both a check since the player isn't in the entity cache and a normal fallback
             if (entity == null) {
-                entity = session.getPlayerEntity();
+                // Set to tame, but indicate that we are not the player that owns this
+                ownerBedrockId = Long.MAX_VALUE;
+            } else {
+                // Translate to entity ID
+                ownerBedrockId = entity.geyserId();
             }
-            // Translate to entity ID
-            ownerBedrockId = entity.getGeyserId();
         } else {
             // Reset
             ownerBedrockId = 0L;
         }
-        dirtyMetadata.put(EntityData.OWNER_EID, ownerBedrockId);
+        metadata.put(EntityDataTypes.OWNER_EID, ownerBedrockId);
+    }
+
+    @Override
+    public boolean canBeLeashed() {
+        return true;
     }
 }

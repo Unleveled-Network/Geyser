@@ -25,12 +25,11 @@
 
 package org.geysermc.geyser.translator.protocol.bedrock;
 
-import com.nukkitx.protocol.bedrock.packet.ItemStackRequestPacket;
-import org.geysermc.geyser.inventory.Inventory;
+import org.cloudburstmc.protocol.bedrock.packet.ItemStackRequestPacket;
+import org.geysermc.geyser.inventory.InventoryHolder;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
-import org.geysermc.geyser.translator.inventory.InventoryTranslator;
 
 /**
  * The packet sent for server-authoritative-style inventory transactions.
@@ -40,11 +39,10 @@ public class BedrockItemStackRequestTranslator extends PacketTranslator<ItemStac
 
     @Override
     public void translate(GeyserSession session, ItemStackRequestPacket packet) {
-        Inventory inventory = session.getOpenInventory();
-        if (inventory == null)
+        InventoryHolder<?> holder = session.getInventoryHolder();
+        if (holder == null)
             return;
 
-        InventoryTranslator translator = session.getInventoryTranslator();
-        translator.translateRequests(session, inventory, packet.getRequests());
+        holder.translateRequests(packet.getRequests());
     }
 }

@@ -25,10 +25,12 @@
 
 package org.geysermc.geyser.dump;
 
+import com.google.gson.annotations.JsonAdapter;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import org.geysermc.common.PlatformType;
 import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.api.util.PlatformType;
+import org.geysermc.geyser.text.AsteriskSerializer;
 
 import java.util.List;
 
@@ -37,7 +39,7 @@ public class BootstrapDumpInfo {
     private final PlatformType platform;
 
     public BootstrapDumpInfo() {
-        this.platform = GeyserImpl.getInstance().getPlatformType();
+        this.platform = GeyserImpl.getInstance().platformType();
     }
 
     @Getter
@@ -53,6 +55,8 @@ public class BootstrapDumpInfo {
     @Getter
     @AllArgsConstructor
     public static class ListenerInfo {
+
+        @JsonAdapter(value = AsteriskSerializer.class)
         public String ip;
         public int port;
     }

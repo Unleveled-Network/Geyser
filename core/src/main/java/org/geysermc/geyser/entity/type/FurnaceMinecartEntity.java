@@ -25,30 +25,38 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.level.block.BlockStateValues;
-
-import java.util.UUID;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.level.block.Blocks;
+import org.geysermc.geyser.level.block.property.Properties;
+import org.geysermc.geyser.level.block.type.BlockState;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class FurnaceMinecartEntity extends DefaultBlockMinecartEntity {
     private boolean hasFuel = false;
 
-    public FurnaceMinecartEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public FurnaceMinecartEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setHasFuel(BooleanEntityMetadata entityMetadata) {
+        // Note: Java ticks this entity and gives it particles if it has fuel
         hasFuel = entityMetadata.getPrimitiveValue();
         updateDefaultBlockMetadata();
     }
 
     @Override
     public void updateDefaultBlockMetadata() {
-        dirtyMetadata.put(EntityData.DISPLAY_ITEM, session.getBlockMappings().getBedrockBlockId(hasFuel ? BlockStateValues.JAVA_FURNACE_LIT_ID : BlockStateValues.JAVA_FURNACE_ID));
-        dirtyMetadata.put(EntityData.DISPLAY_OFFSET, 6);
+        BlockState furnace = Blocks.FURNACE.defaultBlockState().withValue(Properties.LIT, hasFuel);
+        metadata.put(EntityDataTypes.DISPLAY_BLOCK_STATE, session.getBlockMappings().getBedrockBlock(furnace));
+        metadata.put(EntityDataTypes.DISPLAY_OFFSET, 6);
+    }
+
+    @Override
+    public InteractionResult interact(Hand hand) {
+        // Always works since you can "push" it this way
+        return InteractionResult.SUCCESS;
     }
 }

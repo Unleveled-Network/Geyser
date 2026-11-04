@@ -25,21 +25,39 @@
 
 package org.geysermc.geyser.inventory;
 
-import com.github.steveice10.mc.protocol.data.game.inventory.VillagerTrade;
-import com.github.steveice10.mc.protocol.data.game.inventory.ContainerType;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.inventory.ClientboundMerchantOffersPacket;
 import lombok.Getter;
 import lombok.Setter;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.geysermc.geyser.entity.type.Entity;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.VillagerTrade;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundMerchantOffersPacket;
 
-@Getter
+import java.util.List;
+
 @Setter
 public class MerchantContainer extends Container {
+    @Getter
     private Entity villager;
-    private VillagerTrade[] villagerTrades;
+    private List<VillagerTrade> villagerTrades;
+    @Getter
     private ClientboundMerchantOffersPacket pendingOffersPacket;
+    @Getter
+    private int tradeExperience;
 
-    public MerchantContainer(String title, int id, int size, ContainerType containerType, PlayerInventory playerInventory) {
-        super(title, id, size, containerType, playerInventory);
+    public MerchantContainer(GeyserSession session, String title, int id, int size, ContainerType containerType) {
+        super(session, title, id, size, containerType);
+    }
+
+    public void onTradeSelected(GeyserSession session, int slot) {
+        if (villagerTrades != null && slot >= 0 && slot < villagerTrades.size()) {
+            VillagerTrade trade = villagerTrades.get(slot);
+            setItem(2, GeyserItemStack.from(session, trade.getResult()), session);
+
+            tradeExperience += trade.getXp();
+            villager.getMetadata().put(EntityDataTypes.TRADE_EXPERIENCE, tradeExperience);
+            villager.updateBedrockMetadata();
+        }
     }
 }

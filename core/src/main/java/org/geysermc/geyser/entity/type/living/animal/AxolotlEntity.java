@@ -25,20 +25,24 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.registry.type.ItemMapping;
-
-import java.util.UUID;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.type.Item;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
+import org.geysermc.geyser.session.cache.tags.Tag;
+import org.geysermc.geyser.util.EntityUtils;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class AxolotlEntity extends AnimalEntity {
-    public AxolotlEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public AxolotlEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setVariant(IntEntityMetadata entityMetadata) {
@@ -47,7 +51,7 @@ public class AxolotlEntity extends AnimalEntity {
             case 1 -> variant = 3; // Java - "Wild" (brown)
             case 3 -> variant = 1; // Java - cyan
         }
-        dirtyMetadata.put(EntityData.VARIANT, variant);
+        metadata.put(EntityDataTypes.VARIANT, variant);
     }
 
     public void setPlayingDead(BooleanEntityMetadata entityMetadata) {
@@ -55,12 +59,28 @@ public class AxolotlEntity extends AnimalEntity {
     }
 
     @Override
-    public boolean canEat(String javaIdentifierStripped, ItemMapping mapping) {
-        return javaIdentifierStripped.equals("tropical_fish_bucket");
+    @Nullable
+    protected Tag<Item> getFoodTag() {
+        return ItemTag.AXOLOTL_FOOD;
     }
 
     @Override
-    protected int getMaxAir() {
+    protected short getMaxAir() {
         return 6000;
+    }
+
+    @Override
+    public boolean canBeLeashed() {
+        return true;
+    }
+
+    @NonNull
+    @Override
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (EntityUtils.attemptToBucket(itemInHand)) {
+            return InteractionResult.SUCCESS;
+        } else {
+            return super.mobInteract(hand, itemInHand);
+        }
     }
 }

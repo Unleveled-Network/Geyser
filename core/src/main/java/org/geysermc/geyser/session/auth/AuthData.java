@@ -25,18 +25,16 @@
 
 package org.geysermc.geyser.session.auth;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import org.geysermc.geyser.GeyserImpl;
-
 import java.util.UUID;
 
-public record AuthData(String name, UUID uuid, String xuid,
-                       JsonNode certChainData, String clientData) {
-
-    public void upload(GeyserImpl geyser) {
-        // we can't upload the skin in LoginEncryptionUtil since the global server would return
-        // the skin too fast, that's why we upload it after we know for sure that the target server
-        // is ready to handle the result of the global server
-        geyser.getSkinUploader().uploadSkin(certChainData, clientData);
-    }
+/**
+ * A class holding some basic information of the connected user.
+ *
+ * @param name The gamertag of the user
+ * @param uuid Also known as identity
+ * @param xuid The xuid of the user
+ * @param issuedAt The unix time (in seconds) that the JWT was issued
+ * @param playFabId The PlayFab ID of the user
+ */
+public record AuthData(String name, UUID uuid, String xuid, long issuedAt, String playFabId) {
 }

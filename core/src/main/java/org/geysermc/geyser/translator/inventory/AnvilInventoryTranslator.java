@@ -25,39 +25,67 @@
 
 package org.geysermc.geyser.translator.inventory;
 
-import com.github.steveice10.mc.protocol.data.game.inventory.ContainerType;
-import com.nukkitx.protocol.bedrock.data.inventory.ContainerSlotType;
-import com.nukkitx.protocol.bedrock.data.inventory.StackRequestSlotInfoData;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerSlotType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequest;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequestSlotData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.CraftRecipeOptionalAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestActionType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.response.ItemStackResponse;
 import org.geysermc.geyser.inventory.AnvilContainer;
-import org.geysermc.geyser.inventory.Inventory;
-import org.geysermc.geyser.inventory.PlayerInventory;
-import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.inventory.BedrockContainerSlot;
 import org.geysermc.geyser.inventory.updater.AnvilInventoryUpdater;
+import org.geysermc.geyser.level.block.Blocks;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
 
-public class AnvilInventoryTranslator extends AbstractBlockInventoryTranslator {
+import java.util.Objects;
+
+public class AnvilInventoryTranslator extends AbstractBlockInventoryTranslator<AnvilContainer> {
     public AnvilInventoryTranslator() {
-        super(3, "minecraft:anvil[facing=north]", com.nukkitx.protocol.bedrock.data.inventory.ContainerType.ANVIL, AnvilInventoryUpdater.INSTANCE,
-                "minecraft:chipped_anvil", "minecraft:damaged_anvil");
+        super(3, Blocks.ANVIL, org.cloudburstmc.protocol.bedrock.data.inventory.ContainerType.ANVIL, AnvilInventoryUpdater.INSTANCE,
+                Blocks.CHIPPED_ANVIL, Blocks.DAMAGED_ANVIL);
     }
 
     @Override
-    public int bedrockSlotToJava(StackRequestSlotInfoData slotInfoData) {
-        return switch (slotInfoData.getContainer()) {
+    protected boolean shouldHandleRequestFirst(ItemStackRequestAction action, AnvilContainer container) {
+        return action.getType() == ItemStackRequestActionType.CRAFT_RECIPE_OPTIONAL;
+    }
+
+    @Override
+    protected ItemStackResponse translateSpecialRequest(GeyserSession session, AnvilContainer container, ItemStackRequest request) {
+        // Guarded by shouldHandleRequestFirst check
+        CraftRecipeOptionalAction data = (CraftRecipeOptionalAction) request.getActions()[0];
+
+        if (request.getFilterStrings().length != 0) {
+            // Required as of 1.18.30 - FilterTextPackets no longer appear to be sent
+            String name = request.getFilterStrings()[data.getFilteredStringIndex()];
+            if (!Objects.equals(name, container.getNewName())) { // TODO is this still necessary after pre-1.19.50 support is dropped?
+                container.checkForRename(session, name);
+            }
+        }
+
+        return super.translateRequest(session, container, request);
+    }
+
+    @Override
+    public int bedrockSlotToJava(ItemStackRequestSlotData slotInfoData) {
+        return switch (slotInfoData.getContainerName().getContainer()) {
             case ANVIL_INPUT -> 0;
             case ANVIL_MATERIAL -> 1;
-            case ANVIL_RESULT, CREATIVE_OUTPUT -> 2;
+            case ANVIL_RESULT, CREATED_OUTPUT -> 2;
             default -> super.bedrockSlotToJava(slotInfoData);
         };
     }
 
     @Override
-    public BedrockContainerSlot javaSlotToBedrockContainer(int slot) {
+    public BedrockContainerSlot javaSlotToBedrockContainer(int slot, AnvilContainer container) {
         return switch (slot) {
             case 0 -> new BedrockContainerSlot(ContainerSlotType.ANVIL_INPUT, 1);
             case 1 -> new BedrockContainerSlot(ContainerSlotType.ANVIL_MATERIAL, 2);
             case 2 -> new BedrockContainerSlot(ContainerSlotType.ANVIL_RESULT, 50);
-            default -> super.javaSlotToBedrockContainer(slot);
+            default -> super.javaSlotToBedrockContainer(slot, container);
         };
     }
 
@@ -72,17 +100,21 @@ public class AnvilInventoryTranslator extends AbstractBlockInventoryTranslator {
     }
 
     @Override
-    public Inventory createInventory(String name, int windowId, ContainerType containerType, PlayerInventory playerInventory) {
-        return new AnvilContainer(name, windowId, this.size, containerType, playerInventory);
+    public AnvilContainer createInventory(GeyserSession session, String name, int windowId, ContainerType containerType) {
+        return new AnvilContainer(session, name, windowId, this.size, containerType);
     }
 
     @Override
-    public void updateProperty(GeyserSession session, Inventory inventory, int key, int value) {
+    public void updateProperty(GeyserSession session, AnvilContainer container, int key, int value) {
         // The only property sent by Java is key 0 which is the level cost
         if (key != 0) return;
-        AnvilContainer anvilContainer = (AnvilContainer) inventory;
-        anvilContainer.setJavaLevelCost(value);
-        anvilContainer.setUseJavaLevelCost(true);
-        updateSlot(session, anvilContainer, 1);
+        container.setJavaLevelCost(value);
+        container.setUseJavaLevelCost(true);
+        updateSlot(session, container, 1);
+    }
+
+    @Override
+    public org.cloudburstmc.protocol.bedrock.data.inventory.@Nullable ContainerType closeContainerType(AnvilContainer container) {
+        return null;
     }
 }

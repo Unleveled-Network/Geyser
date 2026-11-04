@@ -25,30 +25,42 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.type.EntityType;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
+import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.type.EntityType;
 
-import java.util.UUID;
+public class AbstractArrowEntity extends ProjectileEntity {
 
-public class AbstractArrowEntity extends Entity {
+    private boolean inGround;
 
-    public AbstractArrowEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public AbstractArrowEntity(EntitySpawnContext context) {
+        super(context);
 
         // Set the correct texture if using the resource pack
-        setFlag(EntityFlag.BRIBED, definition.entityType() == EntityType.SPECTRAL_ARROW);
+        setFlag(EntityFlag.BRIBED, javaDefinition.type().is(EntityType.SPECTRAL_ARROW));
 
         setMotion(motion);
+    }
+
+    @Override
+    public void tick() {
+        if (inGround) {
+            return;
+        }
+        super.tick();
     }
 
     public void setArrowFlags(ByteEntityMetadata entityMetadata) {
         byte data = entityMetadata.getPrimitiveValue();
 
         setFlag(EntityFlag.CRITICAL, (data & 0x01) == 0x01);
+    }
+
+    public void setInGround(BooleanEntityMetadata entityMetadata) {
+        this.inGround = entityMetadata.getPrimitiveValue();
     }
 
     // Ignore the rotation sent by the Java server since the
@@ -66,12 +78,22 @@ public class AbstractArrowEntity extends Entity {
     }
 
     @Override
+    protected float getGravity() {
+        return getFlag(EntityFlag.HAS_GRAVITY) ? 0.05f : 0f;
+    }
+
+    @Override
+    protected float getDrag() {
+        return isInWater() ? 0.6f : 0.99f;
+    }
+
+    @Override
     public void setMotion(Vector3f motion) {
         super.setMotion(motion);
 
         double horizontalSpeed = Math.sqrt(motion.getX() * motion.getX() + motion.getZ() * motion.getZ());
-        this.yaw = (float) Math.toDegrees(Math.atan2(motion.getX(), motion.getZ()));
-        this.pitch = (float) Math.toDegrees(Math.atan2(motion.getY(), horizontalSpeed));
-        this.headYaw = yaw;
+        setYaw((float) Math.toDegrees(Math.atan2(motion.getX(), motion.getZ())));
+        setPitch((float) Math.toDegrees(Math.atan2(motion.getY(), horizontalSpeed)));
+        setHeadYaw(getYaw());
     }
 }

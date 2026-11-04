@@ -25,29 +25,29 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.math.vector.Vector3i;
-import com.nukkitx.protocol.bedrock.data.entity.EntityEventType;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import com.nukkitx.protocol.bedrock.data.inventory.ItemData;
-import com.nukkitx.protocol.bedrock.packet.AddItemEntityPacket;
-import com.nukkitx.protocol.bedrock.packet.EntityEventPacket;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.translator.inventory.item.ItemTranslator;
+import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
+import org.cloudburstmc.protocol.bedrock.packet.AddItemEntityPacket;
+import org.cloudburstmc.protocol.bedrock.packet.EntityEventPacket;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.level.block.BlockStateValues;
+import org.geysermc.geyser.level.block.type.BlockState;
+import org.geysermc.geyser.translator.item.ItemTranslator;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 
-import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
-public class ItemEntity extends ThrowableEntity {
+public class ItemEntity extends ProjectileEntity {
     protected ItemData item;
 
-    private int waterLevel = -1;
+    private CompletableFuture<Integer> waterLevel = CompletableFuture.completedFuture(-1);
 
-    public ItemEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ItemEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
@@ -59,12 +59,12 @@ public class ItemEntity extends ThrowableEntity {
         AddItemEntityPacket itemPacket = new AddItemEntityPacket();
         itemPacket.setRuntimeEntityId(geyserId);
         itemPacket.setUniqueEntityId(geyserId);
-        itemPacket.setPosition(position.add(0d, this.definition.offset(), 0d));
+        itemPacket.setPosition(spawnPosition(bedrockPosition()));
         itemPacket.setMotion(motion);
         itemPacket.setFromFishing(false);
         itemPacket.setItemInHand(item);
         itemPacket.getMetadata().putFlags(this.flags);
-        dirtyMetadata.apply(itemPacket.getMetadata());
+        metadata.apply(itemPacket.getMetadata());
 
         setFlagsDirty(false);
 
@@ -73,13 +73,13 @@ public class ItemEntity extends ThrowableEntity {
 
     @Override
     public void tick() {
-        if (isInWater()) {
+        if (removedInVoid() || vehicle != null || isInWater()) {
             return;
         }
-        if (!onGround || (motion.getX() * motion.getX() + motion.getZ() * motion.getZ()) > 0.00001) {
+        if (!isOnGround() || (motion.getX() * motion.getX() + motion.getZ() * motion.getZ()) > 0.00001) {
             float gravity = getGravity();
             motion = motion.down(gravity);
-            moveAbsoluteImmediate(position.add(motion), yaw, pitch, headYaw, onGround, false);
+            moveAbsoluteImmediate(position.add(motion), getYaw(), getPitch(), getHeadYaw(), isOnGround(), false);
             float drag = getDrag();
             motion = motion.mul(drag, 0.98f, drag);
         }
@@ -110,21 +110,22 @@ public class ItemEntity extends ThrowableEntity {
 
     @Override
     protected void moveAbsoluteImmediate(Vector3f position, float yaw, float pitch, float headYaw, boolean isOnGround, boolean teleported) {
-        float offset = definition.offset();
-        if (waterLevel == 0) { // Item is in a full block of water
+        float offset = javaDefinition.offset();
+        if (waterLevel.join() == 0) { // Item is in a full block of water
             // Move the item entity down so it doesn't float above the water
-            offset = -definition.offset();
+            offset = -offset;
         }
-        super.moveAbsoluteImmediate(position.add(0, offset, 0), 0, 0, 0, isOnGround, teleported);
+        setOffset(offset);
+        super.moveAbsoluteImmediate(position, 0, 0, 0, isOnGround, teleported);
         this.position = position;
 
-        int block = session.getGeyser().getWorldManager().getBlockAt(session, position.toInt());
-        waterLevel = BlockStateValues.getWaterLevel(block);
+        waterLevel = session.getGeyser().getWorldManager().getBlockAtAsync(session, position.getFloorX(), position.getFloorY(), position.getFloorZ())
+                .thenApply(BlockStateValues::getWaterLevel);
     }
 
     @Override
     protected float getGravity() {
-        if (getFlag(EntityFlag.HAS_GRAVITY) && !onGround && !isInWater()) {
+        if (getFlag(EntityFlag.HAS_GRAVITY) && !isOnGround() && !isInWater()) {
             // Gravity can change if the item is in water/lava, but
             // the server calculates the motion & position for us
             return 0.04f;
@@ -134,9 +135,9 @@ public class ItemEntity extends ThrowableEntity {
 
     @Override
     protected float getDrag() {
-        if (onGround) {
+        if (isOnGround()) {
             Vector3i groundBlockPos = position.toInt().down(1);
-            int blockState = session.getGeyser().getWorldManager().getBlockAt(session, groundBlockPos);
+            BlockState blockState = session.getGeyser().getWorldManager().blockAt(session, groundBlockPos);
             return BlockStateValues.getSlipperiness(blockState) * 0.98f;
         }
         return 0.98f;
@@ -144,6 +145,6 @@ public class ItemEntity extends ThrowableEntity {
 
     @Override
     protected boolean isInWater() {
-        return waterLevel != -1;
+        return waterLevel.join() != -1;
     }
 }

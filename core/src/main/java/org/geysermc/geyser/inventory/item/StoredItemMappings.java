@@ -27,9 +27,11 @@ package org.geysermc.geyser.inventory.item;
 
 import lombok.Getter;
 import lombok.experimental.Accessors;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.type.Item;
 import org.geysermc.geyser.registry.type.ItemMapping;
 
-import javax.annotation.Nonnull;
 import java.util.Map;
 
 /**
@@ -38,45 +40,37 @@ import java.util.Map;
 @Getter
 @Accessors(fluent = true)
 public class StoredItemMappings {
-    private final ItemMapping bamboo;
-    private final ItemMapping banner;
     private final ItemMapping barrier;
     private final ItemMapping compass;
-    private final ItemMapping crossbow;
-    private final ItemMapping enchantedBook;
-    private final ItemMapping fishingRod;
-    private final ItemMapping lodestoneCompass;
+    private final ItemMapping elytra;
+    private final ItemMapping glassBottle;
     private final ItemMapping milkBucket;
     private final ItemMapping powderSnowBucket;
-    private final ItemMapping playerHead;
-    private final ItemMapping egg;
-    private final ItemMapping shield;
+    private final ItemMapping totem;
+    private final ItemMapping upgradeTemplate;
     private final ItemMapping wheat;
     private final ItemMapping writableBook;
+    private final ItemMapping writtenBook;
 
-    public StoredItemMappings(Map<String, ItemMapping> itemMappings) {
-        this.bamboo = load(itemMappings, "bamboo");
-        this.banner = load(itemMappings, "white_banner"); // As of 1.17.10, all banners have the same Bedrock ID
-        this.barrier = load(itemMappings, "barrier");
-        this.compass = load(itemMappings, "compass");
-        this.crossbow = load(itemMappings, "crossbow");
-        this.enchantedBook = load(itemMappings, "enchanted_book");
-        this.fishingRod = load(itemMappings, "fishing_rod");
-        this.lodestoneCompass = load(itemMappings, "lodestone_compass");
-        this.milkBucket = load(itemMappings, "milk_bucket");
-        this.powderSnowBucket = load(itemMappings, "powder_snow_bucket");
-        this.playerHead = load(itemMappings, "player_head");
-        this.egg = load(itemMappings, "egg");
-        this.shield = load(itemMappings, "shield");
-        this.wheat = load(itemMappings, "wheat");
-        this.writableBook = load(itemMappings, "writable_book");
+    public StoredItemMappings(Map<Item, ItemMapping> itemMappings) {
+        this.barrier = load(itemMappings, Items.BARRIER);
+        this.compass = load(itemMappings, Items.COMPASS);
+        this.elytra = load(itemMappings, Items.ELYTRA);
+        this.glassBottle = load(itemMappings, Items.GLASS_BOTTLE);
+        this.milkBucket = load(itemMappings, Items.MILK_BUCKET);
+        this.powderSnowBucket = load(itemMappings, Items.POWDER_SNOW_BUCKET);
+        this.totem = load(itemMappings, Items.TOTEM_OF_UNDYING);
+        this.upgradeTemplate = load(itemMappings, Items.NETHERITE_UPGRADE_SMITHING_TEMPLATE);
+        this.wheat = load(itemMappings, Items.WHEAT);
+        this.writableBook = load(itemMappings, Items.WRITABLE_BOOK);
+        this.writtenBook = load(itemMappings, Items.WRITTEN_BOOK);
     }
 
-    @Nonnull
-    private ItemMapping load(Map<String, ItemMapping> itemMappings, String cleanIdentifier) {
-        ItemMapping mapping = itemMappings.get("minecraft:" + cleanIdentifier);
+    @NonNull
+    private ItemMapping load(Map<Item, ItemMapping> itemMappings, Item item) {
+        ItemMapping mapping = itemMappings.get(item);
         if (mapping == null) {
-            throw new RuntimeException("Could not find item " + cleanIdentifier);
+            throw new RuntimeException("Could not find item " + item.javaKey());
         }
 
         return mapping;

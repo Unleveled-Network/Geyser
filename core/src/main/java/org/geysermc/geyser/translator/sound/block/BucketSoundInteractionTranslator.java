@@ -25,10 +25,11 @@
 
 package org.geysermc.geyser.translator.sound.block;
 
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.SoundEvent;
-import com.nukkitx.protocol.bedrock.packet.LevelSoundEventPacket;
+import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.SoundEvent;
+import org.cloudburstmc.protocol.bedrock.packet.LevelSoundEventPacket;
 import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.level.block.type.BlockState;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.sound.BlockSoundInteractionTranslator;
 import org.geysermc.geyser.translator.sound.SoundTranslator;
@@ -37,12 +38,13 @@ import org.geysermc.geyser.translator.sound.SoundTranslator;
 public class BucketSoundInteractionTranslator implements BlockSoundInteractionTranslator {
 
     @Override
-    public void translate(GeyserSession session, Vector3f position, String identifier) {
-        if (session.getBucketScheduledFuture() == null) {
+    public void translate(GeyserSession session, Vector3f position, BlockState state) {
+        String identifier = state.toString();
+        if (!session.isPlacedBucket()) {
             return; // No bucket was really interacted with
         }
         GeyserItemStack itemStack = session.getPlayerInventory().getItemInHand();
-        String handItemIdentifier = itemStack.getMapping(session).getJavaIdentifier();
+        String handItemIdentifier = itemStack.asItem().javaKey().asString();
         if (!BlockSoundInteractionTranslator.canInteract(session, itemStack, identifier)) {
             return;
         }
@@ -71,6 +73,7 @@ public class BucketSoundInteractionTranslator implements BlockSoundInteractionTr
             case "minecraft:salmon_bucket":
             case "minecraft:pufferfish_bucket":
             case "minecraft:tropical_fish_bucket":
+            case "minecraft:tadpole_bucket":
                 soundEvent = SoundEvent.BUCKET_EMPTY_FISH;
                 break;
             case "minecraft:water_bucket":
@@ -83,7 +86,7 @@ public class BucketSoundInteractionTranslator implements BlockSoundInteractionTr
         if (soundEvent != null) {
             soundEventPacket.setSound(soundEvent);
             session.sendUpstreamPacket(soundEventPacket);
-            session.setBucketScheduledFuture(null);
+            session.setPlacedBucket(false);
         }
     }
 }

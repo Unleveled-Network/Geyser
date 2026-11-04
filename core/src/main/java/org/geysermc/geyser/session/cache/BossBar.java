@@ -25,13 +25,16 @@
 
 package org.geysermc.geyser.session.cache;
 
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.packet.AddEntityPacket;
-import com.nukkitx.protocol.bedrock.packet.BossEventPacket;
-import com.nukkitx.protocol.bedrock.packet.RemoveEntityPacket;
 import lombok.AllArgsConstructor;
 import net.kyori.adventure.text.Component;
+import org.cloudburstmc.math.vector.Vector2f;
+import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataMap;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.packet.AddEntityPacket;
+import org.cloudburstmc.protocol.bedrock.packet.BossEventPacket;
+import org.cloudburstmc.protocol.bedrock.packet.RemoveEntityPacket;
+import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.text.MessageTranslator;
 
@@ -57,7 +60,7 @@ public class BossBar {
         BossEventPacket bossEventPacket = new BossEventPacket();
         bossEventPacket.setBossUniqueEntityId(entityId);
         bossEventPacket.setAction(BossEventPacket.Action.CREATE);
-        bossEventPacket.setTitle(MessageTranslator.convertMessage(title, session.getLocale()));
+        bossEventPacket.setTitle(bossbarTitle(title));
         bossEventPacket.setHealthPercentage(health);
         bossEventPacket.setColor(color);
         bossEventPacket.setOverlay(overlay);
@@ -71,9 +74,20 @@ public class BossBar {
         BossEventPacket bossEventPacket = new BossEventPacket();
         bossEventPacket.setBossUniqueEntityId(entityId);
         bossEventPacket.setAction(BossEventPacket.Action.UPDATE_NAME);
-        bossEventPacket.setTitle(MessageTranslator.convertMessage(title, session.getLocale()));
+        bossEventPacket.setTitle(bossbarTitle(title));
 
         session.sendUpstreamPacket(bossEventPacket);
+    }
+
+    private String bossbarTitle(Component title) {
+        String message = MessageTranslator.convertMessage(title, session.locale()).replace("%", "%%%%");
+
+        if (message.length() > 256) {
+            GeyserImpl.getInstance().getLogger().debug(session, "Bossbar with a length higher than 256! Limiting length.");
+            message = message.substring(0, 253) + "...";
+        }
+
+        return message;
     }
 
     public void updateHealth(float health) {
@@ -115,13 +129,13 @@ public class BossBar {
         addEntityPacket.setRuntimeEntityId(entityId);
         addEntityPacket.setIdentifier("minecraft:creeper");
         addEntityPacket.setEntityType(33);
-        addEntityPacket.setPosition(session.getPlayerEntity().getPosition().sub(0D, -10D, 0D));
-        addEntityPacket.setRotation(Vector3f.ZERO);
+        addEntityPacket.setPosition(session.getPlayerEntity().position().down(10));
+        addEntityPacket.setRotation(Vector2f.ZERO);
         addEntityPacket.setMotion(Vector3f.ZERO);
-        addEntityPacket.getMetadata()
-                .putFloat(EntityData.SCALE, 0F)
-                .putFloat(EntityData.BOUNDING_BOX_WIDTH, 0F)
-                .putFloat(EntityData.BOUNDING_BOX_HEIGHT, 0F);
+        EntityDataMap metadata = addEntityPacket.getMetadata();
+        metadata.put(EntityDataTypes.SCALE, 0F);
+        metadata.put(EntityDataTypes.WIDTH, 0F);
+        metadata.put(EntityDataTypes.HEIGHT, 0F);
 
         session.sendUpstreamPacket(addEntityPacket);
     }

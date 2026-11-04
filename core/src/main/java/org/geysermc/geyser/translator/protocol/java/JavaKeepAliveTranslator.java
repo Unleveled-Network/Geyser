@@ -25,11 +25,11 @@
 
 package org.geysermc.geyser.translator.protocol.java;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.ClientboundKeepAlivePacket;
-import com.nukkitx.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.mcprotocollib.protocol.packet.common.clientbound.ClientboundKeepAlivePacket;
+import org.geysermc.mcprotocollib.protocol.packet.common.serverbound.ServerboundKeepAlivePacket;
 
 /**
  * Used to forward the keep alive packet to the client in order to get back a reliable ping.
@@ -39,12 +39,12 @@ public class JavaKeepAliveTranslator extends PacketTranslator<ClientboundKeepAli
 
     @Override
     public void translate(GeyserSession session, ClientboundKeepAlivePacket packet) {
-        if (!session.getGeyser().getConfig().isForwardPlayerPing()) {
+        if (!session.getGeyser().config().gameplay().forwardPlayerPing()) {
             return;
         }
-        NetworkStackLatencyPacket latencyPacket = new NetworkStackLatencyPacket();
-        latencyPacket.setFromServer(true);
-        latencyPacket.setTimestamp(packet.getPingId() * 1000);
-        session.sendUpstreamPacket(latencyPacket);
+
+        final long javaId = packet.getPingId();
+        // ClientboundKeepAlivePacket's are async, hence we won't add additional delay ensuring it's sent in the event loop would add
+        session.sendNetworkLatencyStackPacket(javaId, false, () -> session.sendDownstreamPacket(new ServerboundKeepAlivePacket(javaId)));
     }
 }

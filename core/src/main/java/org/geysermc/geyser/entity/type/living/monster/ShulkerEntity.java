@@ -25,44 +25,74 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.object.Direction;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.GolemEntity;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction;
 
-import java.util.UUID;
+import java.util.EnumMap;
 
 public class ShulkerEntity extends GolemEntity {
 
-    public ShulkerEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ShulkerEntity(EntitySpawnContext context) {
+        super(context);
         // Indicate that invisibility should be fixed through the resource pack
         setFlag(EntityFlag.BRIBED, true);
     }
 
+    @Override
+    public boolean shouldLerp() {
+        return false;
+    }
+
+    @Override
+    protected void initializeMetadata() {
+        super.initializeMetadata();
+        // As of 1.19.4, it seems Java no longer sends the shulker color if it's the default color on initial spawn
+        // We still need the special case for 16 color in setShulkerColor though as it will send it for an entity metadata update
+        metadata.put(EntityDataTypes.VARIANT, 16);
+
+        setFlag(EntityFlag.COLLIDABLE, true);
+
+        // This is vanilla behaviour yes (BDS does this), without this as of 1.21.93 entity became fully invisible.
+        // Doing this allow the invisible parity support inside GeyserOptionalPack to works again.
+        setFlag(EntityFlag.RENDER_WHEN_INVISIBLE, true);
+    }
+
+    @Override
+    protected EnumMap<EntityFlag, Boolean> spectateHiddenFlags() {
+        // The shell overlay uses RENDER_WHEN_INVISIBLE, so hide it too while this shulker is being spectated
+        EnumMap<EntityFlag, Boolean> overridden = super.spectateHiddenFlags();
+        overridden.put(EntityFlag.RENDER_WHEN_INVISIBLE, false);
+        return overridden;
+    }
+
     public void setAttachedFace(EntityMetadata<Direction, ?> entityMetadata) {
         Direction direction = entityMetadata.getValue();
-        dirtyMetadata.put(EntityData.SHULKER_ATTACH_FACE, (byte) direction.ordinal());
+        metadata.put(EntityDataTypes.SHULKER_ATTACH_FACE, direction.ordinal());
     }
 
     public void setShulkerHeight(ByteEntityMetadata entityMetadata) {
         int height = entityMetadata.getPrimitiveValue();
-        dirtyMetadata.put(EntityData.SHULKER_PEEK_ID, height);
+        metadata.put(EntityDataTypes.SHULKER_PEEK_AMOUNT, height);
     }
 
     public void setShulkerColor(ByteEntityMetadata entityMetadata) {
-        byte color = ((ByteEntityMetadata) entityMetadata).getPrimitiveValue();
+        byte color = entityMetadata.getPrimitiveValue();
         if (color == 16) {
             // 16 is default on both editions
-            dirtyMetadata.put(EntityData.VARIANT, 16);
+            metadata.put(EntityDataTypes.VARIANT, 16);
         } else {
             // Every other shulker color is offset 15 in bedrock edition
-            dirtyMetadata.put(EntityData.VARIANT, Math.abs(color - 15));
+            metadata.put(EntityDataTypes.VARIANT, Math.abs(color - 15));
         }
+    }
+
+    @Override
+    protected boolean isEnemy() {
+        return true;
     }
 }

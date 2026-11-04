@@ -25,41 +25,36 @@
 
 package org.geysermc.geyser.util;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.geysermc.geyser.GeyserBootstrap;
 import org.geysermc.geyser.GeyserImpl;
+import org.spongepowered.configurate.ConfigurationNode;
+import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
-import java.io.*;
-import java.lang.annotation.Annotation;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class FileUtils {
-
-    /**
-     * Load the given YAML file into the given class
-     *
-     * @param src File to load
-     * @param valueType Class to load file into
-     * @param <T> the type
-     * @return The data as the given class
-     * @throws IOException if the config could not be loaded
-     */
+public final class FileUtils {
     public static <T> T loadConfig(File src, Class<T> valueType) throws IOException {
-        ObjectMapper objectMapper = new ObjectMapper(new YAMLFactory());
-        return objectMapper.readValue(src, valueType);
+        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
+            .file(src)
+            .build();
+        ConfigurationNode node = loader.load();
+        return node.get(valueType);
     }
 
-    public static <T> T loadJson(InputStream src, Class<T> valueType) throws IOException {
+    public static <T> T loadJson(InputStream src, Class<T> valueType) {
         // Read specifically with UTF-8 to allow any non-UTF-encoded JSON to read
-        return GeyserImpl.JSON_MAPPER.readValue(new InputStreamReader(src, StandardCharsets.UTF_8), valueType);
+        return GeyserImpl.GSON.fromJson(new InputStreamReader(src, StandardCharsets.UTF_8), valueType);
     }
 
     /**
@@ -76,7 +71,7 @@ public class FileUtils {
             //noinspection ResultOfMethodCallIgnored
             file.createNewFile();
             try (FileOutputStream fos = new FileOutputStream(file)) {
-                try (InputStream input = bootstrap.getResource(name)) {
+                try (InputStream input = bootstrap.getResourceOrThrow(name)) {
                     byte[] bytes = new byte[input.available()];
 
                     //noinspection ResultOfMethodCallIgnored
@@ -92,6 +87,18 @@ public class FileUtils {
         }
 
         return file;
+    }
+
+    /**
+     * Open the specified file or copy if from resources
+     *
+     * @param file File to open
+     * @param name Name of the resource get if needed
+     * @return File handle of the specified file
+     * @throws IOException if the file failed to copy from resource
+     */
+    public static File fileOrCopiedFromResource(File file, String name, GeyserBootstrap bootstrap) throws IOException {
+        return fileOrCopiedFromResource(file, name, Function.identity(), bootstrap);
     }
 
     /**
@@ -129,14 +136,14 @@ public class FileUtils {
     /**
      * Calculate the SHA256 hash of a file
      *
-     * @param file File to calculate the hash for
+     * @param path Path to calculate the hash for
      * @return A byte[] representation of the hash
      */
-    public static byte[] calculateSHA256(File file) {
+    public static byte[] calculateSHA256(Path path) {
         byte[] sha256;
 
         try {
-            sha256 = MessageDigest.getInstance("SHA-256").digest(readAllBytes(file));
+            sha256 = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path));
         } catch (Exception e) {
             throw new RuntimeException("Could not calculate pack hash", e);
         }
@@ -147,14 +154,14 @@ public class FileUtils {
     /**
      * Calculate the SHA1 hash of a file
      *
-     * @param file File to calculate the hash for
+     * @param path Path to calculate the hash for
      * @return A byte[] representation of the hash
      */
-    public static byte[] calculateSHA1(File file) {
+    public static byte[] calculateSHA1(Path path) {
         byte[] sha1;
 
         try {
-            sha1 = MessageDigest.getInstance("SHA-1").digest(readAllBytes(file));
+            sha1 = MessageDigest.getInstance("SHA-1").digest(Files.readAllBytes(path));
         } catch (Exception e) {
             throw new RuntimeException("Could not calculate pack hash", e);
         }
@@ -163,29 +170,24 @@ public class FileUtils {
     }
 
     /**
-     * An android compatible version of {@link Files#readAllBytes}
-     *
-     * @param file File to read bytes of
-     * @return The byte array of the file
+     * @param resource the internal resource to read off from
+     * @return the byte array of an InputStream
      */
-    public static byte[] readAllBytes(File file) {
-        try (InputStream stream = new FileInputStream(file)) {
+    public static byte[] readAllBytes(String resource) {
+        try (InputStream stream = GeyserImpl.getInstance().getBootstrap().getResourceOrThrow(resource)) {
             return stream.readAllBytes();
         } catch (IOException e) {
-            throw new RuntimeException("Cannot read " + file);
+            throw new RuntimeException("Error while trying to read internal input stream!", e);
         }
     }
 
     /**
      * @param resource the internal resource to read off from
-     * @return the byte array of an InputStream
+     * 
+     * @return the contents decoded as a UTF-8 String
      */
-    public static byte[] readAllBytes(String resource) {
-        try (InputStream stream = GeyserImpl.getInstance().getBootstrap().getResource(resource)) {
-            return stream.readAllBytes();
-        } catch (IOException e) {
-            throw new RuntimeException("Error while trying to read internal input stream!", e);
-        }
+    public static String readToString(String resource) {
+        return new String(readAllBytes(resource), StandardCharsets.UTF_8);
     }
 
     /**
@@ -202,43 +204,6 @@ public class FileUtils {
         }
     }
 
-    /**
-     * Returns a set of all the classes that are annotated by a given annotation.
-     * Keep in mind that these are from a set of generated annotations generated
-     * at compile time by the annotation processor, meaning that arbitrary annotations
-     * cannot be passed into this method and expected to have a set of classes
-     * returned back.
-     *
-     * @param annotationClass the annotation class
-     * @return a set of all the classes annotated by the given annotation
-     */
-    public static Set<Class<?>> getGeneratedClassesForAnnotation(Class<? extends Annotation> annotationClass) {
-        return getGeneratedClassesForAnnotation(annotationClass.getName());
-    }
-
-    /**
-     * Returns a set of all the classes that are annotated by a given annotation.
-     * Keep in mind that these are from a set of generated annotations generated
-     * at compile time by the annotation processor, meaning that arbitrary annotations
-     * cannot be passed into this method and expected to have a set of classes
-     * returned back.
-     *
-     * @param input the fully qualified name of the annotation
-     * @return a set of all the classes annotated by the given annotation
-     */
-    public static Set<Class<?>> getGeneratedClassesForAnnotation(String input) {
-        try (InputStream annotatedClass = GeyserImpl.getInstance().getBootstrap().getResource(input);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(annotatedClass))) {
-            return reader.lines().map(className -> {
-                try {
-                    return Class.forName(className);
-                } catch (ClassNotFoundException ex) {
-                    GeyserImpl.getInstance().getLogger().error("Failed to find class " + className, ex);
-                    throw new RuntimeException(ex);
-                }
-            }).collect(Collectors.toSet());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+    private FileUtils() {
     }
 }

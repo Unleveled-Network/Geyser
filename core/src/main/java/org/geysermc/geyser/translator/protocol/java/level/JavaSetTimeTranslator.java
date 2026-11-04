@@ -25,31 +25,41 @@
 
 package org.geysermc.geyser.translator.protocol.java.level;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.level.ClientboundSetTimePacket;
-import com.nukkitx.protocol.bedrock.packet.SetTimePacket;
+import net.kyori.adventure.key.Key;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.registry.java.JavaRegistries;
+import org.geysermc.geyser.registry.java.JavaRegistry;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.mcprotocollib.protocol.data.game.level.ClockNetworkState;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundSetTimePacket;
 
 @Translator(packet = ClientboundSetTimePacket.class)
 public class JavaSetTimeTranslator extends PacketTranslator<ClientboundSetTimePacket> {
 
     @Override
     public void translate(GeyserSession session, ClientboundSetTimePacket packet) {
-        // Bedrock sends a GameRulesChangedPacket if there is no daylight cycle
-        // Java just sends a negative long if there is no daylight cycle
-        long time = packet.getTime();
+        session.setGameTicks(packet.getGameTime());
 
-        // https://minecraft.gamepedia.com/Day-night_cycle#24-hour_Minecraft_day
-        SetTimePacket setTimePacket = new SetTimePacket();
-        setTimePacket.setTime((int) Math.abs(time) % 24000);
-        session.sendUpstreamPacket(setTimePacket);
-        if (!session.isDaylightCycle() && time >= 0) {
-            // Client thinks there is no daylight cycle but there is
-            session.setDaylightCycle(true);
-        } else if (session.isDaylightCycle() && time < 0) {
-            // Client thinks there is daylight cycle but there isn't
-            session.setDaylightCycle(false);
+        // We only translate the dimension's default clock right now (or, if only one clock exists, we translate that),
+        // which will work for vanilla, but probably less so for custom dimensions
+        // Nevertheless, this is the best effort we can do right now, and better than just translating the overworld clock
+        ClockNetworkState defaultClockState = packet.getClockUpdates().get(defaultClockId(session));
+        if (defaultClockState != null) {
+            session.setTimeTicks(defaultClockState.totalTicks(), defaultClockState.partialTick());
+            // We need to send a gamerule if this changed
+            session.setClockRate(defaultClockState.rate());
         }
+    }
+
+    private static int defaultClockId(GeyserSession session) {
+        JavaRegistry<?> clockRegistry = session.javaRegistries().registry(JavaRegistries.WORLD_CLOCK);
+        Key defaultClock = session.getDimensionType().defaultClock();
+        if (defaultClock != null) {
+            return clockRegistry.getIdOrThrow(defaultClock);
+        } else if (clockRegistry.size() == 1) {
+            return 0;
+        }
+        return -1;
     }
 }

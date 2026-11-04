@@ -25,27 +25,59 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.nukkitx.math.vector.Vector3f;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.AgeableEntity;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.registry.type.ItemMapping;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.type.Item;
+import org.geysermc.geyser.session.cache.tags.Tag;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.geyser.util.InteractiveTag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
-import java.util.UUID;
+public abstract class AnimalEntity extends AgeableEntity {
 
-public class AnimalEntity extends AgeableEntity {
+    public AnimalEntity(EntitySpawnContext context) {
+        super(context);
+    }
 
-    public AnimalEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    protected final boolean canEat(GeyserItemStack itemStack) {
+        Tag<Item> tag = getFoodTag();
+        if (tag == null) {
+            return false;
+        }
+        return itemStack.is(session, tag);
     }
 
     /**
-     * @param javaIdentifierStripped the stripped Java identifier of the item that is potential breeding food. For example,
-     *                               <code>wheat</code>.
-     * @return true if this is a valid item to breed with for this animal.
+     * @return the tag associated with this animal for eating food. Null for nothing or different behavior.
      */
-    public boolean canEat(String javaIdentifierStripped, ItemMapping mapping) {
-        // This is what it defaults to. OK.
-        return javaIdentifierStripped.equals("wheat");
+    protected abstract @Nullable Tag<Item> getFoodTag();
+
+    @NonNull
+    @Override
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (canEat(itemInHand)) {
+            return InteractiveTag.FEED;
+        }
+        return super.testMobInteraction(hand, itemInHand);
+    }
+
+    @NonNull
+    @Override
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (canEat(itemInHand)) {
+            // FEED
+            if (getFlag(EntityFlag.BABY)) {
+                playEntityEvent(EntityEventType.BABY_ANIMAL_FEED);
+                return InteractionResult.SUCCESS;
+            } else {
+                return InteractionResult.CONSUME;
+            }
+        }
+        return super.mobInteract(hand, itemInHand);
     }
 }

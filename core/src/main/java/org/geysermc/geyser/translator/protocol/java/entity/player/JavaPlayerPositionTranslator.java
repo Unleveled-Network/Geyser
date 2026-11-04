@@ -25,128 +25,161 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity.player;
 
-import com.github.steveice10.mc.protocol.data.game.entity.player.PositionElement;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket;
-import com.github.steveice10.mc.protocol.packet.ingame.serverbound.level.ServerboundAcceptTeleportationPacket;
-import com.github.steveice10.mc.protocol.packet.ingame.serverbound.player.ServerboundMovePlayerPosRotPacket;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityLinkData;
-import com.nukkitx.protocol.bedrock.packet.MovePlayerPacket;
-import com.nukkitx.protocol.bedrock.packet.RespawnPacket;
-import com.nukkitx.protocol.bedrock.packet.SetEntityLinkPacket;
-import org.geysermc.geyser.entity.EntityDefinitions;
-import org.geysermc.geyser.entity.type.Entity;
+import org.cloudburstmc.math.vector.Vector3d;
+import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.packet.ChunkRadiusUpdatedPacket;
+import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket;
+import org.cloudburstmc.protocol.bedrock.packet.RespawnPacket;
+import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
+import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.entity.type.player.SessionPlayerEntity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.TeleportCache;
-import org.geysermc.geyser.text.GeyserLocale;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.ChunkUtils;
-import org.geysermc.geyser.util.EntityUtils;
+import org.geysermc.geyser.util.MathUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.PositionElement;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerPositionPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundAcceptTeleportationPacket;
 
 @Translator(packet = ClientboundPlayerPositionPacket.class)
 public class JavaPlayerPositionTranslator extends PacketTranslator<ClientboundPlayerPositionPacket> {
 
     @Override
     public void translate(GeyserSession session, ClientboundPlayerPositionPacket packet) {
-        if (!session.isLoggedIn())
+        if (!session.isLoggedIn()) {
             return;
+        }
 
-        SessionPlayerEntity entity = session.getPlayerEntity();
+        final SessionPlayerEntity entity = session.getPlayerEntity();
+        if (entity.getVehicle() != null) { // Vanilla behaviour, the player ignores teleport if they're on a vehicle.
+            acceptTeleport(session, entity.position().toDouble(), entity.getJavaYaw(), entity.getPitch(), packet.getId());
+            entity.setPendingBedInteraction(null);
+            return;
+        }
+
+        Vector3d position = packet.getPosition().add(
+            packet.getRelatives().contains(PositionElement.X) ? entity.position().getX() : 0,
+            packet.getRelatives().contains(PositionElement.Y) ? entity.position().getY() : 0,
+            packet.getRelatives().contains(PositionElement.Z) ? entity.position().getZ() : 0);
+
+        float newPitch = MathUtils.clamp(packet.getXRot() + (packet.getRelatives().contains(PositionElement.X_ROT) ? entity.getPitch() : 0), -90, 90);
+        float newYaw = packet.getYRot() + (packet.getRelatives().contains(PositionElement.Y_ROT) ? entity.getYaw() : 0);
+
+        final int teleportId = packet.getId();
+
+        acceptTeleport(session, position, newYaw, newPitch, teleportId);
 
         if (!session.isSpawned()) {
-            // The server sends an absolute teleport everytime the player is respawned
-            Vector3f pos = Vector3f.from(packet.getX(), packet.getY(), packet.getZ());
-            entity.setPosition(pos);
-            entity.setYaw(packet.getYaw());
-            entity.setPitch(packet.getPitch());
-            entity.setHeadYaw(packet.getYaw());
+            entity.setPosition(position.toFloat());
+            entity.setYaw(packet.getYRot());
+            entity.setPitch(packet.getXRot());
+            entity.setHeadYaw(packet.getYRot());
 
             RespawnPacket respawnPacket = new RespawnPacket();
             respawnPacket.setRuntimeEntityId(0); // Bedrock server behavior
-            respawnPacket.setPosition(entity.getPosition());
+            respawnPacket.setPosition(entity.bedrockPosition());
             respawnPacket.setState(RespawnPacket.State.SERVER_READY);
             session.sendUpstreamPacket(respawnPacket);
 
             entity.updateBedrockMetadata();
 
             MovePlayerPacket movePlayerPacket = new MovePlayerPacket();
-            movePlayerPacket.setRuntimeEntityId(entity.getGeyserId());
-            movePlayerPacket.setPosition(entity.getPosition());
-            movePlayerPacket.setRotation(Vector3f.from(packet.getPitch(), packet.getYaw(), 0));
+            movePlayerPacket.setRuntimeEntityId(entity.geyserId());
+            movePlayerPacket.setPosition(entity.bedrockPosition());
+            movePlayerPacket.setRotation(entity.bedrockRotation());
             movePlayerPacket.setMode(MovePlayerPacket.Mode.RESPAWN);
-
             session.sendUpstreamPacket(movePlayerPacket);
+
+            // Fixes incorrect rotation upon login
+            // Yes, even that's not respected by Bedrock. Try it out in singleplayer!
+            // Log out and back in - and you're looking elsewhere :)
+            entity.updateOwnRotation(entity.getYaw(), entity.getPitch(), entity.getHeadYaw());
             session.setSpawned(true);
+
             // Make sure the player moves away from (0, 32767, 0) before accepting movement packets
-            session.setUnconfirmedTeleport(new TeleportCache(packet.getX(), packet.getY(), packet.getZ(), packet.getPitch(), packet.getYaw(), packet.getTeleportId()));
+            Vector3f entityPosition = entity.position();
+            session.setUnconfirmedTeleport(new TeleportCache(session, entityPosition, packet.getXRot(), packet.getYRot(), packet.getId()));
 
-            acceptTeleport(session, packet.getX(), packet.getY(), packet.getZ(), packet.getYaw(), packet.getPitch(), packet.getTeleportId());
+            if (session.getServerRenderDistance() > 32 && !session.isEmulatePost1_13Logic()) {
+                // See DimensionUtils for an explanation
+                ChunkRadiusUpdatedPacket chunkRadiusUpdatedPacket = new ChunkRadiusUpdatedPacket();
+                chunkRadiusUpdatedPacket.setRadius(session.getServerRenderDistance());
+                session.sendUpstreamPacket(chunkRadiusUpdatedPacket);
 
-            ChunkUtils.updateChunkPosition(session, pos.toInt());
-
-            if (session.getGeyser().getConfig().isDebugMode()) {
-                session.getGeyser().getLogger().debug(GeyserLocale.getLocaleStringLog("geyser.entity.player.spawn", packet.getX(), packet.getY(), packet.getZ()));
+                session.setLastChunkPosition(null);
             }
+
+            ChunkUtils.updateChunkPosition(session, entityPosition.toInt());
+
+            if (session.getGeyser().config().debugMode()) {
+                session.getGeyser().getLogger().debug("Spawned player at " + packet.getPosition());
+            }
+            entity.setPendingBedInteraction(null);
             return;
         }
 
-        Entity vehicle;
-        if (packet.isDismountVehicle() && (vehicle = session.getPlayerEntity().getVehicle()) != null) {
-            SetEntityLinkPacket linkPacket = new SetEntityLinkPacket();
-            linkPacket.setEntityLink(new EntityLinkData(vehicle.getGeyserId(), entity.getGeyserId(), EntityLinkData.Type.REMOVE, false, false));
-            session.sendUpstreamPacket(linkPacket);
+        Vector3f lastPlayerPosition = entity.position();
+        session.getGeyser().getLogger().debug("Teleport (" + teleportId + ") from " + lastPlayerPosition);
 
-            vehicle.getPassengers().remove(entity);
-            session.getPlayerEntity().setVehicle(null);
+        float lastPlayerPitch = entity.getPitch();
+        float lastPlayerYaw = entity.getYaw();
+        Vector3f teleportDestination = position.toFloat();
 
-            EntityUtils.updateRiderRotationLock(entity, null, false);
-            EntityUtils.updateMountOffset(entity, null, false, false, entity.getPassengers().size() > 1);
-            entity.updateBedrockMetadata();
+        Vector3f deltaMovement = packet.getDeltaMovement().toFloat().add(
+            packet.getRelatives().contains(PositionElement.DELTA_X) ? entity.getMotion().getX() : 0,
+            packet.getRelatives().contains(PositionElement.DELTA_Y) ? entity.getMotion().getY() : 0,
+            packet.getRelatives().contains(PositionElement.DELTA_Z) ? entity.getMotion().getZ() : 0
+        );
+
+        if (packet.getRelatives().contains(PositionElement.ROTATE_DELTA)) {
+            deltaMovement = MathUtils.xYRot(deltaMovement, (float) Math.toRadians(lastPlayerPitch - newPitch), (float) Math.toRadians(lastPlayerYaw - newYaw));
         }
 
-        // If coordinates are relative, then add to the existing coordinate
-        double newX = packet.getX() +
-                (packet.getRelative().contains(PositionElement.X) ? entity.getPosition().getX() : 0);
-        double newY = packet.getY() +
-                (packet.getRelative().contains(PositionElement.Y) ? entity.getPosition().getY() - EntityDefinitions.PLAYER.offset() : 0);
-        double newZ = packet.getZ() +
-                (packet.getRelative().contains(PositionElement.Z) ? entity.getPosition().getZ() : 0);
+        SessionPlayerEntity.PendingBedInteraction pendingBedInteraction = entity.getPendingBedInteraction();
+        if (pendingBedInteraction != null) {
+            // See the Javadocs over at SessionPlayerEntity#pendingBedInteraction - we need to silently ignore a teleport if it just teleports us to the bed
 
-        float newPitch = packet.getPitch() +
-                (packet.getRelative().contains(PositionElement.PITCH) ? entity.getBedrockRotation().getX() : 0);
-        float newYaw = packet.getYaw() +
-                (packet.getRelative().contains(PositionElement.YAW) ? entity.getBedrockRotation().getY() : 0);
+            entity.setPendingBedInteraction(null);
+            if (looksLikeBedTeleport(pendingBedInteraction, position, deltaMovement)) {
+                GeyserImpl.getInstance().getLogger().debug("Not translating teleport because it is to a pending bed interaction");
+                return;
+            }
+        }
 
-        int id = packet.getTeleportId();
+        TeleportCache.TeleportType type = (deltaMovement.distanceSquared(Vector3f.ZERO) > 1.0E-8F) ?
+            TeleportCache.TeleportType.KEEP_VELOCITY : TeleportCache.TeleportType.NORMAL;
 
-        session.getGeyser().getLogger().debug("Teleport (" + id + ") from " + entity.getPosition().getX() + " " + (entity.getPosition().getY() - EntityDefinitions.PLAYER.offset()) + " " + entity.getPosition().getZ());
+        // Set the unconfirmed teleport to ensure we send the adjusted Bedrock position in moveAbsolute (see CollisionManager#adjustPositionForBedrock)
+        session.setUnconfirmedTeleport(new TeleportCache(session, teleportDestination, deltaMovement, newPitch, newYaw, teleportId, type));
+        entity.moveAbsolute(teleportDestination, newYaw, newPitch, false, true);
 
-        Vector3f lastPlayerPosition = entity.getPosition().down(EntityDefinitions.PLAYER.offset());
-        float lastPlayerPitch = entity.getBedrockRotation().getX();
-        Vector3f teleportDestination = Vector3f.from(newX, newY, newZ);
-        entity.moveAbsolute(teleportDestination, newYaw, newPitch, true, true);
-
-        session.getGeyser().getLogger().debug("to " + entity.getPosition().getX() + " " + (entity.getPosition().getY() - EntityDefinitions.PLAYER.offset()) + " " + entity.getPosition().getZ());
-
-        // Bedrock ignores teleports that are extremely close to the player's original position and orientation,
-        // so check if we need to cache the teleport
-        if (lastPlayerPosition.distanceSquared(teleportDestination) < 0.001 && Math.abs(newPitch - lastPlayerPitch) < 5) {
+        // Bedrock ignores teleports that are extremely close to the player's original position and orientation, so check if we need to cache the teleport
+        if (lastPlayerPosition.distanceSquared(teleportDestination) < 0.001 && Math.abs(newPitch - lastPlayerPitch) < 5 && Math.abs(newYaw - lastPlayerYaw) < 5) {
             session.setUnconfirmedTeleport(null);
-        } else {
-            session.setUnconfirmedTeleport(new TeleportCache(newX, newY, newZ, newPitch, newYaw, id));
         }
 
-        acceptTeleport(session, newX, newY, newZ, newYaw, newPitch, id);
+        if (type == TeleportCache.TeleportType.KEEP_VELOCITY) {
+            entity.setMotion(deltaMovement);
+            // Our motion got reset by the teleport but the deltaMovement is not 0 so send a motion packet to fix that.
+            SetEntityMotionPacket entityMotionPacket = new SetEntityMotionPacket();
+            entityMotionPacket.setRuntimeEntityId(entity.geyserId());
+            entityMotionPacket.setMotion(entity.getMotion());
+            session.sendUpstreamPacket(entityMotionPacket);
+        }
+
+        session.getGeyser().getLogger().debug("to " + entity.position());
     }
 
-    private void acceptTeleport(GeyserSession session, double x, double y, double z, float yaw, float pitch, int id) {
+    private void acceptTeleport(GeyserSession session, Vector3d position, float yaw, float pitch, int id) {
         // Confirm the teleport when we receive it to match Java edition
-        ServerboundAcceptTeleportationPacket teleportConfirmPacket = new ServerboundAcceptTeleportationPacket(id);
-        session.sendDownstreamPacket(teleportConfirmPacket);
-        // Servers (especially ones like Hypixel) expect exact coordinates given back to them.
-        ServerboundMovePlayerPosRotPacket positionPacket = new ServerboundMovePlayerPosRotPacket(false, x, y, z, yaw, pitch);
-        session.sendDownstreamPacket(positionPacket);
+        ServerboundAcceptTeleportationPacket teleportConfirmPacket = new ServerboundAcceptTeleportationPacket(id, position.getX(), position.getY(), position.getZ(), yaw, pitch);
+        session.sendDownstreamGamePacket(teleportConfirmPacket);
+    }
+
+    private static boolean looksLikeBedTeleport(SessionPlayerEntity.PendingBedInteraction pendingInteraction, Vector3d packetPosition, Vector3f deltaMovement) {
+        // Teleports to a bed after a bed interaction always teleports to the centre of the bed (plus some Y offset), with a delta movement of 0 (as of Java 26.3)
+        return pendingInteraction.expectedTeleportPosition().equals(packetPosition) && deltaMovement.length() == 0.0;
     }
 }

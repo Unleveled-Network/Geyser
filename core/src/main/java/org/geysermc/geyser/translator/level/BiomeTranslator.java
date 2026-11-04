@@ -25,132 +25,155 @@
 
 package org.geysermc.geyser.translator.level;
 
-import com.github.steveice10.mc.protocol.data.game.chunk.BitStorage;
-import com.github.steveice10.mc.protocol.data.game.chunk.DataPalette;
-import com.github.steveice10.mc.protocol.data.game.chunk.palette.GlobalPalette;
-import com.github.steveice10.mc.protocol.data.game.chunk.palette.Palette;
-import com.github.steveice10.mc.protocol.data.game.chunk.palette.SingletonPalette;
-import com.github.steveice10.opennbt.tag.builtin.*;
-import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntLists;
-import org.geysermc.geyser.session.GeyserSession;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.level.BedrockDimension;
+import org.geysermc.geyser.level.JavaDimension;
 import org.geysermc.geyser.level.chunk.BlockStorage;
-import org.geysermc.geyser.level.chunk.GeyserChunkSection;
 import org.geysermc.geyser.level.chunk.bitarray.BitArray;
 import org.geysermc.geyser.level.chunk.bitarray.BitArrayVersion;
 import org.geysermc.geyser.level.chunk.bitarray.SingletonBitArray;
 import org.geysermc.geyser.registry.Registries;
-import org.geysermc.geyser.util.MathUtils;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.registry.java.JavaRegistries;
+import org.geysermc.geyser.registry.java.JavaRegistryLookup;
+import org.geysermc.geyser.registry.java.reader.RegistryEntryContext;
+import org.geysermc.mcprotocollib.protocol.data.game.chunk.BitStorage;
+import org.geysermc.mcprotocollib.protocol.data.game.chunk.DataPalette;
+import org.geysermc.mcprotocollib.protocol.data.game.chunk.palette.GlobalPalette;
+import org.geysermc.mcprotocollib.protocol.data.game.chunk.palette.Palette;
+import org.geysermc.mcprotocollib.protocol.data.game.chunk.palette.SingletonPalette;
+
+import java.util.Optional;
 
 // Array index formula by https://wiki.vg/Chunk_Format
 public class BiomeTranslator {
 
-    public static void loadServerBiomes(GeyserSession session, CompoundTag codec) {
-        Int2IntMap biomeTranslations = session.getBiomeTranslations();
-        biomeTranslations.clear();
+    /**
+     * Marks a Java biome with no direct Bedrock equivalent; a dimension-appropriate fallback
+     * is selected in {@link #bedrockBiomeId(GeyserSession, JavaRegistryLookup, int)} instead.
+     */
+    private static final int UNKNOWN_BIOME = -1;
 
-        CompoundTag worldGen = codec.get("minecraft:worldgen/biome");
-        ListTag serverBiomes = worldGen.get("value");
-        session.setBiomeGlobalPalette(MathUtils.getGlobalPaletteForSize(serverBiomes.size()));
+    public static int loadServerBiome(RegistryEntryContext entry) {
+        String javaIdentifier = entry.id().asString();
+        return Registries.BIOME_IDENTIFIERS.get().getOrDefault(javaIdentifier, UNKNOWN_BIOME);
+    }
 
-        for (Tag tag : serverBiomes) {
-            CompoundTag biomeTag = (CompoundTag) tag;
-
-            String javaIdentifier = ((StringTag) biomeTag.get("name")).getValue();
-            int bedrockId = Registries.BIOME_IDENTIFIERS.get().getOrDefault(javaIdentifier, -1);
-            int javaId = ((IntTag) biomeTag.get("id")).getValue();
-
-            if (bedrockId == -1) {
-                // There is no matching Bedrock variation for this biome; let's set the closest match based on biome category
-                String category = ((StringTag) ((CompoundTag) biomeTag.get("element")).get("category")).getValue();
-                String replacementBiome = switch (category) {
-                    case "extreme_hills" -> "minecraft:mountains";
-                    case "icy" -> "minecraft:ice_spikes";
-                    case "mesa" -> "minecraft:badlands";
-                    case "mushroom" -> "minecraft:mushroom_fields";
-                    case "nether" -> "minecraft:nether_wastes";
-                    default -> "minecraft:ocean"; // Typically ID 0 so a good default
-                    case "taiga", "jungle", "plains", "savanna", "the_end", "beach", "ocean", "desert", "river", "swamp" -> "minecraft:" + category;
-                };
-                bedrockId = Registries.BIOME_IDENTIFIERS.get().getInt(replacementBiome);
-            }
-
-            // When we see the Java ID, we should instead apply the Bedrock ID
-            biomeTranslations.put(javaId, bedrockId);
-
-            if (javaId == 0) {
-                // Matches Java behavior when it sees an invalid biome - it just replaces it with ID 0
-                biomeTranslations.defaultReturnValue(bedrockId);
-            }
+    /**
+     * Resolves a Java biome network ID to a Bedrock biome ID, never returning an invalid ID.
+     * Biomes that could not be mapped, along with out-of-range network IDs, resolve to a
+     * vanilla biome fitting the session's current dimension so that sky, fog and weather
+     * render sensibly instead of always defaulting to ocean.
+     */
+    private static int bedrockBiomeId(GeyserSession session, JavaRegistryLookup<Integer> biomeTranslations, int javaId) {
+        Optional<Integer> bedrockId = javaId < 0 ? Optional.empty() : biomeTranslations.get(javaId);
+        if (bedrockId.isEmpty() || bedrockId.get() == UNKNOWN_BIOME) {
+            return fallbackBiomeId(session.getDimensionType());
         }
+        return bedrockId.get();
+    }
+
+    private static int fallbackBiomeId(@Nullable JavaDimension dimension) {
+        String identifier;
+        if (dimension == null) {
+            identifier = "minecraft:ocean";
+        } else if (dimension.isNetherLike()) {
+            // Checked before the Bedrock dimension ID, as the Nether-roof workaround maps
+            // Nether-like dimensions to the End's dimension ID
+            identifier = "minecraft:nether_wastes";
+        } else if (dimension.bedrockId() == BedrockDimension.END_ID) {
+            identifier = "minecraft:the_end";
+        } else {
+            identifier = "minecraft:ocean";
+        }
+        return Registries.BIOME_IDENTIFIERS.get().getOrDefault(identifier, 0);
     }
 
     public static BlockStorage toNewBedrockBiome(GeyserSession session, DataPalette biomeData) {
-        Int2IntMap biomeTranslations = session.getBiomeTranslations();
+        JavaRegistryLookup<Integer> biomeTranslations = session.javaRegistries().registry(JavaRegistries.BIOME);
         // As of 1.17.10: the client expects the same format as a chunk but filled with biomes
         // As of 1.18 this is the same as Java Edition
 
         Palette palette = biomeData.getPalette();
         if (palette instanceof SingletonPalette) {
-            int biomeId = biomeTranslations.get(palette.idToState(0));
+            int biomeId = bedrockBiomeId(session, biomeTranslations, palette.idToState(0));
             return new BlockStorage(SingletonBitArray.INSTANCE, IntLists.singleton(biomeId));
         } else {
             BlockStorage storage;
             if (!(palette instanceof GlobalPalette)) {
-                // Prevent resizing by allocating what we can ahead of time
                 BitStorage bitStorage = biomeData.getStorage();
                 int size = palette.size();
-                BitArray bitArray = BitArrayVersion.forBitsCeil(bitStorage.getBitsPerEntry())
-                        .createArray(BlockStorage.SIZE);
 
-                IntList bedrockPalette = new IntArrayList(size);
-
-                for (int i = 0; i < size; i++) {
-                    int javaId = palette.idToState(i);
-                    bedrockPalette.add(biomeTranslations.get(javaId));
+                // Fast-path: if all 64 biome cells use the same palette index,
+                // use a singleton instead of computing the full 4096-entry BitArray
+                int firstIdx = bitStorage.get(0);
+                boolean allSame = true;
+                for (int i = 1; i < 64; i++) {
+                    if (bitStorage.get(i) != firstIdx) {
+                        allSame = false;
+                        break;
+                    }
                 }
 
-                // Each section of biome corresponding to a chunk section contains 4 * 4 * 4 entries
-                for (int i = 0; i < 64; i++) {
-                    int idx = bitStorage.get(i);
-                    int x = i & 3;
-                    int y = (i >> 4) & 3;
-                    int z = (i >> 2) & 3;
-                    // Convert biome coordinates into block coordinates
-                    // Bedrock expects a full 4096 blocks
-                    multiplyIdToStorage(bitArray, idx, x, y, z);
-                }
+                if (allSame) {
+                    int biomeId = bedrockBiomeId(session, biomeTranslations, palette.idToState(firstIdx));
+                    storage = new BlockStorage(SingletonBitArray.INSTANCE, IntLists.singleton(biomeId));
+                } else {
+                    // Prevent resizing by allocating what we can ahead of time
+                    BitArray bitArray = BitArrayVersion.forBitsCeil(bitStorage.getBitsPerEntry())
+                            .createArray(BlockStorage.SIZE);
 
-                storage = new BlockStorage(bitArray, bedrockPalette);
+                    IntList bedrockPalette = new IntArrayList(size);
+
+                    for (int i = 0; i < size; i++) {
+                        int javaId = palette.idToState(i);
+                        bedrockPalette.add(bedrockBiomeId(session, biomeTranslations, javaId));
+                    }
+
+                    // Each section of biome corresponding to a chunk section contains 4 * 4 * 4 entries
+                    for (int i = 0; i < 64; i++) {
+                        int idx = bitStorage.get(i);
+                        int x = i & 3;
+                        int y = (i >> 4) & 3;
+                        int z = (i >> 2) & 3;
+                        // Convert biome coordinates into block coordinates
+                        // Bedrock expects a full 4096 blocks
+                        multiplyIdToStorage(bitArray, idx, x, y, z);
+                    }
+
+                    storage = new BlockStorage(bitArray, bedrockPalette);
+                }
             } else {
                 storage = new BlockStorage(0);
-                BitArray bitArray = storage.getBitArray();
 
                 // Each section of biome corresponding to a chunk section contains 4 * 4 * 4 entries
                 for (int i = 0; i < 64; i++) {
-                    int javaId = biomeData.getPalette().idToState(biomeData.getStorage().get(i));
+                    int javaId = palette.idToState(biomeData.getStorage().get(i));
                     int x = i & 3;
                     int y = (i >> 4) & 3;
                     int z = (i >> 2) & 3;
                     // Get the Bedrock biome ID override
-                    int biomeId = biomeTranslations.get(javaId);
+                    int biomeId = bedrockBiomeId(session, biomeTranslations, javaId);
                     int idx = storage.idFor(biomeId);
                     // Convert biome coordinates into block coordinates
                     // Bedrock expects a full 4096 blocks
-                    multiplyIdToStorage(bitArray, idx, x, y, z);
+                    // Implementation note: storage.getBitArray() must be called and not stored - if the palette
+                    // grows, then the instance can change
+                    multiplyIdToStorage(storage.getBitArray(), idx, x, y, z);
                 }
             }
             return storage;
         }
     }
 
-    private static void multiplyIdToStorage(BitArray bitArray, int idx, int x, int y, int z) {
+    private static void multiplyIdToStorage(final BitArray bitArray, final int idx, final int x, final int y, final int z) {
         for (int blockX = x << 2; blockX < (x << 2) + 4; blockX++) {
             for (int blockZ = z << 2; blockZ < (z << 2) + 4; blockZ++) {
                 for (int blockY = y << 2; blockY < (y << 2) + 4; blockY++) {
-                    bitArray.set(GeyserChunkSection.blockPosition(blockX, blockY, blockZ), idx);
+                    bitArray.set((blockX << 8) | (blockZ << 4) | blockY, idx);
                 }
             }
         }

@@ -25,20 +25,37 @@
 
 package org.geysermc.geyser.entity.type.living.animal.horse;
 
-import com.nukkitx.math.vector.Vector3f;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.Items;
 
 public class ChestedHorseEntity extends AbstractHorseEntity {
 
-    public ChestedHorseEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ChestedHorseEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
     protected int getContainerBaseSize() {
         return 16;
+    }
+
+    @Override
+    protected boolean testSaddle(@NonNull GeyserItemStack itemInHand) {
+        // Not checked here
+        return false;
+    }
+
+    @Override
+    protected boolean testForChest(@NonNull GeyserItemStack itemInHand) {
+        return itemInHand.is(Items.CHEST) && !getFlag(EntityFlag.CHESTED);
+    }
+
+    @Override
+    protected boolean additionalTestForInventoryOpen(@NonNull GeyserItemStack itemInHand) {
+        // Armor won't work on these
+        return false;
     }
 }

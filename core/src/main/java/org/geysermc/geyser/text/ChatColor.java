@@ -25,7 +25,10 @@
 
 package org.geysermc.geyser.text;
 
+import org.geysermc.mcprotocollib.protocol.data.game.scoreboard.TeamColor;
+
 public class ChatColor {
+    public static final String ANSI_RESET = (char) 0x1b + "[0m";
 
     public static final char ESCAPE = '§';
     public static final String BLACK = ESCAPE + "0";
@@ -64,7 +67,7 @@ public class ChatColor {
         string = string.replace(ITALIC, (char) 0x1b + "[3m");
         string = string.replace(UNDERLINE, (char) 0x1b + "[4m");
         string = string.replace(STRIKETHROUGH, (char) 0x1b + "[9m");
-        string = string.replace(RESET, (char) 0x1b + "[0m");
+        string = string.replace(RESET, ANSI_RESET);
         string = string.replace(BLACK, (char) 0x1b + "[0;30m");
         string = string.replace(DARK_BLUE, (char) 0x1b + "[0;34m");
         string = string.replace(DARK_GREEN, (char) 0x1b + "[0;32m");
@@ -84,18 +87,52 @@ public class ChatColor {
         return string;
     }
 
-    public String translateAlternateColorCodes(char color, String message) {
-        return message.replace(color, ESCAPE);
+    public static String colorDisplayOrder(int index) {
+        // https://bugs.mojang.com/browse/MCPE-41729
+        // strikethrough and underlined do not exist on Bedrock
+        return switch (index) {
+            case 0 -> BLACK;
+            case 1 -> DARK_BLUE;
+            case 2 -> DARK_GREEN;
+            case 3 -> DARK_AQUA;
+            case 4 -> DARK_RED;
+            case 5 -> DARK_PURPLE;
+            case 6 -> GOLD;
+            case 7 -> GRAY;
+            case 8 -> DARK_GRAY;
+            case 9 -> BLUE;
+            case 10 -> GREEN;
+            case 11 -> AQUA;
+            case 12 -> RED;
+            case 13 -> LIGHT_PURPLE;
+            case 14 -> YELLOW;
+            case 15 -> WHITE;
+            case 16 -> OBFUSCATED;
+            case 17 -> BOLD;
+            default -> ITALIC;
+        };
     }
 
-    /**
-     * Remove all colour formatting tags from a message
-     *
-     * @param message Message to remove colour tags from
-     *
-     * @return The sanitised message
-     */
-    public static String stripColors(String message) {
-        return message = message.replaceAll("(&([a-fk-or0-9]))","").replaceAll("(§([a-fk-or0-9]))","").replaceAll("s/\\x1b\\[[0-9;]*[a-zA-Z]//g","");
+    public static String chatColorFor(TeamColor teamColor) {
+        // https://bugs.mojang.com/browse/MCPE-41729
+        // strikethrough and underlined do not exist on Bedrock
+        return switch (teamColor) {
+            case BLACK -> BLACK;
+            case DARK_BLUE -> DARK_BLUE;
+            case DARK_GREEN -> DARK_GREEN;
+            case DARK_AQUA -> DARK_AQUA;
+            case DARK_RED -> DARK_RED;
+            case DARK_PURPLE -> DARK_PURPLE;
+            case GOLD -> GOLD;
+            case GRAY -> GRAY;
+            case DARK_GRAY -> DARK_GRAY;
+            case BLUE -> BLUE;
+            case GREEN -> GREEN;
+            case AQUA -> AQUA;
+            case RED -> RED;
+            case LIGHT_PURPLE -> LIGHT_PURPLE;
+            case YELLOW -> YELLOW;
+            case WHITE -> WHITE;
+        };
     }
 }

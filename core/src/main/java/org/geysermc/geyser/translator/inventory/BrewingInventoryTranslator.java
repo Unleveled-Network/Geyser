@@ -25,55 +25,59 @@
 
 package org.geysermc.geyser.translator.inventory;
 
-import com.nukkitx.protocol.bedrock.data.inventory.ContainerSlotType;
-import com.nukkitx.protocol.bedrock.data.inventory.ContainerType;
-import com.nukkitx.protocol.bedrock.data.inventory.StackRequestSlotInfoData;
-import com.nukkitx.protocol.bedrock.packet.ContainerSetDataPacket;
-import org.geysermc.geyser.inventory.Inventory;
-import org.geysermc.geyser.session.GeyserSession;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerSlotType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequestSlotData;
+import org.cloudburstmc.protocol.bedrock.packet.ContainerSetDataPacket;
 import org.geysermc.geyser.inventory.BedrockContainerSlot;
+import org.geysermc.geyser.inventory.BrewingContainer;
 import org.geysermc.geyser.inventory.updater.ContainerInventoryUpdater;
+import org.geysermc.geyser.level.block.Blocks;
+import org.geysermc.geyser.level.block.property.Properties;
+import org.geysermc.geyser.session.GeyserSession;
 
-public class BrewingInventoryTranslator extends AbstractBlockInventoryTranslator {
+public class BrewingInventoryTranslator extends AbstractBlockInventoryTranslator<BrewingContainer> {
     public BrewingInventoryTranslator() {
-        super(5, "minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]", ContainerType.BREWING_STAND, ContainerInventoryUpdater.INSTANCE);
+        super(5, Blocks.BREWING_STAND.defaultBlockState()
+                .withValue(Properties.HAS_BOTTLE_0, false)
+                .withValue(Properties.HAS_BOTTLE_1, false)
+                .withValue(Properties.HAS_BOTTLE_2, false), ContainerType.BREWING_STAND, ContainerInventoryUpdater.INSTANCE);
     }
 
     @Override
-    public void openInventory(GeyserSession session, Inventory inventory) {
-        super.openInventory(session, inventory);
+    public void updateProperty(GeyserSession session, BrewingContainer container, int key, int value) {
         ContainerSetDataPacket dataPacket = new ContainerSetDataPacket();
-        dataPacket.setWindowId((byte) inventory.getId());
-        dataPacket.setProperty(ContainerSetDataPacket.BREWING_STAND_FUEL_TOTAL);
-        dataPacket.setValue(20);
-        session.sendUpstreamPacket(dataPacket);
-    }
-
-    @Override
-    public void updateProperty(GeyserSession session, Inventory inventory, int key, int value) {
-        ContainerSetDataPacket dataPacket = new ContainerSetDataPacket();
-        dataPacket.setWindowId((byte) inventory.getId());
+        dataPacket.setWindowId((byte) container.getBedrockId());
         switch (key) {
             case 0:
                 dataPacket.setProperty(ContainerSetDataPacket.BREWING_STAND_BREW_TIME);
+                dataPacket.setValue(container.updateBrewTime(value));
                 break;
             case 1:
                 dataPacket.setProperty(ContainerSetDataPacket.BREWING_STAND_FUEL_AMOUNT);
+                dataPacket.setValue(value);
+                break;
+            case 2:
+                dataPacket.setProperty(ContainerSetDataPacket.BREWING_STAND_BREW_TIME);
+                dataPacket.setValue(container.updateTotalBrewTime(value));
+            case 3:
+                dataPacket.setProperty(ContainerSetDataPacket.BREWING_STAND_FUEL_TOTAL);
+                dataPacket.setValue(value);
                 break;
             default:
                 return;
         }
-        dataPacket.setValue(value);
         session.sendUpstreamPacket(dataPacket);
     }
 
     @Override
-    public int bedrockSlotToJava(StackRequestSlotInfoData slotInfoData) {
-        if (slotInfoData.getContainer() == ContainerSlotType.BREWING_INPUT) {
+    public int bedrockSlotToJava(ItemStackRequestSlotData slotInfoData) {
+        if (slotInfoData.getContainerName().getContainer() == ContainerSlotType.BREWING_INPUT) {
             // Ingredient
             return 3;
         }
-        if (slotInfoData.getContainer() == ContainerSlotType.BREWING_RESULT) {
+        if (slotInfoData.getContainerName().getContainer() == ContainerSlotType.BREWING_RESULT) {
             // Potions
             return slotInfoData.getSlot() - 1;
         }
@@ -93,12 +97,22 @@ public class BrewingInventoryTranslator extends AbstractBlockInventoryTranslator
     }
 
     @Override
-    public BedrockContainerSlot javaSlotToBedrockContainer(int slot) {
+    public BedrockContainerSlot javaSlotToBedrockContainer(int slot, BrewingContainer container) {
         return switch (slot) {
             case 0, 1, 2 -> new BedrockContainerSlot(ContainerSlotType.BREWING_RESULT, javaSlotToBedrock(slot));
             case 3 -> new BedrockContainerSlot(ContainerSlotType.BREWING_INPUT, 0);
             case 4 -> new BedrockContainerSlot(ContainerSlotType.BREWING_FUEL, 4);
-            default -> super.javaSlotToBedrockContainer(slot);
+            default -> super.javaSlotToBedrockContainer(slot, container);
         };
+    }
+
+    @Override
+    public @Nullable ContainerType closeContainerType(BrewingContainer container) {
+        return ContainerType.BREWING_STAND;
+    }
+
+    @Override
+    public BrewingContainer createInventory(GeyserSession session, String name, int windowId, org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType containerType) {
+        return new BrewingContainer(session, name, windowId, this.size, containerType);
     }
 }

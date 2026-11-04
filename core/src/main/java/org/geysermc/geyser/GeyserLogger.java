@@ -25,9 +25,15 @@
 
 package org.geysermc.geyser;
 
-import javax.annotation.Nullable;
+import net.kyori.adventure.text.Component;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.command.GeyserCommandSource;
+import org.geysermc.geyser.session.GeyserSession;
 
-public interface GeyserLogger {
+import java.util.UUID;
+
+public interface GeyserLogger extends GeyserCommandSource {
 
     /**
      * Logs a severe message to console
@@ -74,6 +80,15 @@ public interface GeyserLogger {
     void info(String message);
 
     /**
+     * Logs an info component to console
+     *
+     * @param message the message to log
+     */
+    default void info(Component message) {
+        sendMessage(message);
+    }
+
+    /**
      * Logs a debug message to console
      *
      * @param message the message to log
@@ -86,8 +101,20 @@ public interface GeyserLogger {
      * @param object the object to log
      */
     default void debug(@Nullable Object object) {
-        debug(String.valueOf(object));
+        if (isDebug()) {
+            // Don't create String object by default
+            info(String.valueOf(object));
+        }
     }
+
+    /**
+     * Logs and formats a message to console if debug mode is enabled,
+     * with the provided arguments.
+     *
+     * @param message the message to log
+     * @param arguments the arguments to replace in the message
+     */
+    void debug(String message, Object... arguments);
 
     /**
      * Sets if the logger should print debug messages
@@ -97,7 +124,41 @@ public interface GeyserLogger {
     void setDebug(boolean debug);
 
     /**
+     * A method to debug information specific to a session.
+     */
+    default void debug(GeyserSession session, String message, Object... arguments) {
+        if (isDebug()) {
+            debug("(" + session.bedrockUsername() + ") " + message, arguments);
+        }
+    }
+
+    /**
      * If debug is enabled for this logger
      */
     boolean isDebug();
+
+    @Override
+    default String name() {
+        return "CONSOLE";
+    }
+
+    @Override
+    default void sendMessage(@NonNull String message) {
+        info(message);
+    }
+
+    @Override
+    default boolean isConsole() {
+        return true;
+    }
+
+    @Override
+    default @Nullable UUID playerUuid() {
+        return null;
+    }
+
+    @Override
+    default boolean hasPermission(String permission) {
+        return true;
+    }
 }

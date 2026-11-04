@@ -25,37 +25,46 @@
 
 package org.geysermc.geyser.entity.type.living.animal.horse;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.google.common.collect.ImmutableSet;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityEventType;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import com.nukkitx.protocol.bedrock.data.inventory.ContainerType;
-import com.nukkitx.protocol.bedrock.packet.EntityEventPacket;
-import com.nukkitx.protocol.bedrock.packet.UpdateAttributesPacket;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.math.vector.Vector2f;
+import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.AttributeData;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerType;
+import org.cloudburstmc.protocol.bedrock.packet.EntityEventPacket;
+import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.geysermc.geyser.entity.attribute.GeyserAttributeType;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.animal.AnimalEntity;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.registry.type.ItemMapping;
+import org.geysermc.geyser.entity.vehicle.ClientVehicle;
+import org.geysermc.geyser.entity.vehicle.HorseVehicleComponent;
+import org.geysermc.geyser.entity.vehicle.VehicleComponent;
+import org.geysermc.geyser.input.InputLocksFlag;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.type.Item;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
+import org.geysermc.geyser.session.cache.tags.Tag;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.geyser.util.InteractiveTag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.EquipmentSlot;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.Attribute;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.attribute.AttributeType;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
-import java.util.Set;
-import java.util.UUID;
+public class AbstractHorseEntity extends AnimalEntity implements ClientVehicle {
 
-public class AbstractHorseEntity extends AnimalEntity {
-    /**
-     * A list of all foods a horse/donkey can eat on Java Edition.
-     * Used to display interactive tag if needed.
-     */
-    private static final Set<String> DONKEY_AND_HORSE_FOODS = ImmutableSet.of("golden_apple", "enchanted_golden_apple",
-            "golden_carrot", "sugar", "apple", "wheat", "hay_block");
+    private final HorseVehicleComponent vehicleComponent = new HorseVehicleComponent(this);
 
-    public AbstractHorseEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public AbstractHorseEntity(EntitySpawnContext context) {
+        super(context);
 
         // Specifies the size of the entity's inventory. Required to place slots in the entity.
-        dirtyMetadata.put(EntityData.CONTAINER_BASE_SIZE, getContainerBaseSize());
+        metadata.put(EntityDataTypes.CONTAINER_SIZE, getContainerBaseSize());
 
         setFlag(EntityFlag.WASD_CONTROLLED, true);
     }
@@ -78,12 +87,37 @@ public class AbstractHorseEntity extends AnimalEntity {
         session.sendUpstreamPacket(attributesPacket);
     }
 
+    @Override
+    public void updateSaddled(boolean saddled) {
+        // Shows the jump meter
+        setFlag(EntityFlag.CAN_POWER_JUMP, saddled);
+        super.updateSaddled(saddled);
+
+        if (this.passengers.contains(session.getPlayerEntity())) {
+            // We want to allow player to press jump again if pressing jump doesn't dismount the entity.
+            this.session.setLockInput(InputLocksFlag.JUMP, this.doesJumpDismount());
+            this.session.updateInputLocks();
+        }
+    }
+
+    @Override
+    protected AttributeData calculateAttribute(Attribute javaAttribute, GeyserAttributeType type) {
+        AttributeData attributeData = super.calculateAttribute(javaAttribute, type);
+        if (javaAttribute.getType() == AttributeType.Builtin.JUMP_STRENGTH) {
+            vehicleComponent.setHorseJumpStrength(attributeData.getValue());
+        }
+        return attributeData;
+    }
+
+    @Override
+    public boolean doesJumpDismount() {
+        return !this.getFlag(EntityFlag.SADDLED);
+    }
+
     public void setHorseFlags(ByteEntityMetadata entityMetadata) {
         byte xd = entityMetadata.getPrimitiveValue();
         boolean tamed = (xd & 0x02) == 0x02;
-        boolean saddled = (xd & 0x04) == 0x04;
         setFlag(EntityFlag.TAMED, tamed);
-        setFlag(EntityFlag.SADDLED, saddled);
         setFlag(EntityFlag.EATING, (xd & 0x10) == 0x10);
         setFlag(EntityFlag.STANDING, (xd & 0x20) == 0x20);
 
@@ -97,8 +131,8 @@ public class AbstractHorseEntity extends AnimalEntity {
         // Only set eating when we don't have mouth open so a player interaction doesn't trigger the eating animation
         horseFlags = (xd & 0x10) == 0x10 && (xd & 0x40) != 0x40 ? horseFlags | 0x20 : horseFlags;
 
-        // Set the flags into the display item
-        dirtyMetadata.put(EntityData.DISPLAY_ITEM, horseFlags);
+        // Set the flags into the horse flags
+        metadata.put(EntityDataTypes.HORSE_FLAGS, horseFlags);
 
         // Send the eating particles
         // We use the wheat metadata as static particles since Java
@@ -107,19 +141,208 @@ public class AbstractHorseEntity extends AnimalEntity {
             EntityEventPacket entityEventPacket = new EntityEventPacket();
             entityEventPacket.setRuntimeEntityId(geyserId);
             entityEventPacket.setType(EntityEventType.EATING_ITEM);
-            entityEventPacket.setData(session.getItemMappings().getStoredItems().wheat().getBedrockId() << 16);
+            entityEventPacket.setData(session.getItemMappings().getStoredItems().wheat().getBedrockDefinition().getRuntimeId() << 16);
             session.sendUpstreamPacket(entityEventPacket);
         }
 
         // Set container type if tamed
-        dirtyMetadata.put(EntityData.CONTAINER_TYPE, tamed ? (byte) ContainerType.HORSE.getId() : (byte) 0);
-
-        // Shows the jump meter
-        setFlag(EntityFlag.CAN_POWER_JUMP, saddled);
+        metadata.put(EntityDataTypes.CONTAINER_TYPE, tamed ? (byte) ContainerType.HORSE.getId() : (byte) 0);
     }
 
     @Override
-    public boolean canEat(String javaIdentifierStripped, ItemMapping mapping) {
-        return DONKEY_AND_HORSE_FOODS.contains(javaIdentifierStripped);
+    @Nullable
+    protected Tag<Item> getFoodTag() {
+        return ItemTag.HORSE_FOOD;
+    }
+
+    @NonNull
+    @Override
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        return testHorseInteraction(hand, itemInHand);
+    }
+
+    @NonNull
+    protected final InteractiveTag testHorseInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        boolean isBaby = isBaby();
+        if (!isBaby) {
+            if (getFlag(EntityFlag.TAMED) && session.isSneaking()) {
+                return InteractiveTag.OPEN_CONTAINER;
+            }
+
+            if (!passengers.isEmpty()) {
+                return super.testMobInteraction(hand, itemInHand);
+            }
+        }
+
+        if (!itemInHand.isEmpty()) {
+            if (canEat(itemInHand)) {
+                return InteractiveTag.FEED;
+            }
+
+            if (testSaddle(itemInHand)) {
+                return InteractiveTag.SADDLE;
+            }
+
+            if (!getFlag(EntityFlag.TAMED)) {
+                // Horse will become mad
+                return InteractiveTag.NONE;
+            }
+
+            if (testForChest(itemInHand)) {
+                return InteractiveTag.ATTACH_CHEST;
+            }
+
+            if (additionalTestForInventoryOpen(itemInHand) || !isBaby && !getFlag(EntityFlag.SADDLED) && itemInHand.is(Items.SADDLE)) {
+                // Will open the inventory to be saddled
+                return InteractiveTag.OPEN_CONTAINER;
+            }
+        }
+
+        if (isBaby) {
+            return super.testMobInteraction(hand, itemInHand);
+        } else {
+            return InteractiveTag.MOUNT;
+        }
+    }
+
+    @NonNull
+    @Override
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        return mobHorseInteract(hand, itemInHand);
+    }
+
+    @NonNull
+    protected final InteractionResult mobHorseInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        boolean isBaby = isBaby();
+        if (!isBaby) {
+            if (getFlag(EntityFlag.TAMED) && session.isSneaking()) {
+                // Will open the inventory
+                return InteractionResult.SUCCESS;
+            }
+
+            if (!passengers.isEmpty()) {
+                return super.mobInteract(hand, itemInHand);
+            }
+        }
+
+        if (!itemInHand.isEmpty()) {
+            if (canEat(itemInHand)) {
+                if (isBaby) {
+                    playEntityEvent(EntityEventType.BABY_ANIMAL_FEED);
+                }
+                return InteractionResult.CONSUME;
+            }
+
+            if (testSaddle(itemInHand)) {
+                return InteractionResult.SUCCESS;
+            }
+
+            if (!getFlag(EntityFlag.TAMED)) {
+                // Horse will become mad
+                return InteractionResult.SUCCESS;
+            }
+
+            if (testForChest(itemInHand)) {
+                // TODO looks like chest is also handled client side
+                return InteractionResult.SUCCESS;
+            }
+
+            // Note: yes, this code triggers for llamas too. lol (as of Java Edition 1.18.1)
+            if (additionalTestForInventoryOpen(itemInHand) || (!isBaby && !getFlag(EntityFlag.SADDLED) && itemInHand.is(Items.SADDLE))) {
+                // Will open the inventory to be saddled
+                return InteractionResult.SUCCESS;
+            }
+        }
+
+        if (isBaby) {
+            return super.mobInteract(hand, itemInHand);
+        } else {
+            // Attempt to mount
+            // TODO client-set flags sitting standing?
+            return InteractionResult.SUCCESS;
+        }
+    }
+
+    protected boolean testSaddle(@NonNull GeyserItemStack itemInHand) {
+        return isAlive() && !getFlag(EntityFlag.BABY) && getFlag(EntityFlag.TAMED);
+    }
+
+    protected boolean testForChest(@NonNull GeyserItemStack itemInHand) {
+        return false;
+    }
+
+    protected boolean additionalTestForInventoryOpen(@NonNull GeyserItemStack itemInHand) {
+        // TODO this doesn't seem right anymore... (as of Java 1.21.9)
+        return itemInHand.asItem().javaKey().value().endsWith("_horse_armor");
+    }
+
+    /* Just a place to stuff common code for the undead variants without having duplicate code */
+
+    protected final InteractiveTag testUndeadHorseInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (!getFlag(EntityFlag.TAMED)) {
+            return InteractiveTag.NONE;
+        } else if (isBaby()) {
+            return testHorseInteraction(hand, itemInHand);
+        } else if (session.isSneaking()) {
+            return InteractiveTag.OPEN_CONTAINER;
+        } else if (!passengers.isEmpty()) {
+            return testHorseInteraction(hand, itemInHand);
+        } else {
+            if (itemInHand.is(Items.SADDLE)) {
+                return InteractiveTag.OPEN_CONTAINER;
+            }
+
+            if (testSaddle(itemInHand)) {
+                return InteractiveTag.SADDLE;
+            }
+
+            return InteractiveTag.RIDE_HORSE;
+        }
+    }
+
+    protected final InteractionResult undeadHorseInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (!getFlag(EntityFlag.TAMED)) {
+            return InteractionResult.PASS;
+        } else if (isBaby()) {
+            return mobHorseInteract(hand, itemInHand);
+        } else if (session.isSneaking()) {
+            // Opens inventory
+            return InteractionResult.SUCCESS;
+        } else if (!passengers.isEmpty()) {
+            return mobHorseInteract(hand, itemInHand);
+        } else {
+            // The client tests for saddle but it doesn't matter for us at this point.
+            return InteractionResult.SUCCESS;
+        }
+    }
+
+    @Override
+    protected boolean canUseSlot(EquipmentSlot slot) {
+        if (slot != EquipmentSlot.SADDLE) {
+            return super.canUseSlot(slot);
+        } else {
+            return isAlive() && !isBaby() && getFlag(EntityFlag.TAMED);
+        }
+    }
+
+    @Override
+    public VehicleComponent<?> getVehicleComponent() {
+        return this.vehicleComponent;
+    }
+
+    @Override
+    public Vector3f getRiddenInput(Vector2f input) {
+        input = input.mul(0.5f, input.getY() < 0 ? 0.25f : 1.0f);
+        return Vector3f.from(input.getX(), 0.0, input.getY());
+    }
+
+    @Override
+    public float getVehicleSpeed() {
+        return vehicleComponent.getMoveSpeed();
+    }
+
+    @Override
+    public boolean shouldSimulateMovement() {
+        return getFlag(EntityFlag.SADDLED) && !passengers.isEmpty() && passengers.getFirst() == session.getPlayerEntity() && !session.isInClientPredictedVehicle();
     }
 }

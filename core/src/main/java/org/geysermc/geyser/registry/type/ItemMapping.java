@@ -25,43 +25,59 @@
 
 package org.geysermc.geyser.registry.type;
 
+import com.google.common.collect.SortedSetMultimap;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import lombok.Value;
-import org.geysermc.geyser.network.MinecraftProtocol;
-import org.geysermc.geyser.registry.BlockRegistries;
-
-import java.util.Set;
+import net.kyori.adventure.key.Key;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
+import org.cloudburstmc.protocol.bedrock.data.definitions.ItemDefinition;
+import org.geysermc.geyser.item.GeyserCustomMappingData;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.type.Item;
 
 @Value
 @Builder
 @EqualsAndHashCode
+@ToString
 public class ItemMapping {
-    public static final ItemMapping AIR = new ItemMapping("minecraft:air", "minecraft:air", 0, 0, 0,
-            BlockRegistries.BLOCKS.forVersion(MinecraftProtocol.DEFAULT_BEDROCK_CODEC.getProtocolVersion()).getBedrockAirId(),
-            64, null, null, null, 0, null);
+    public static final ItemMapping AIR = new ItemMapping(
+            "minecraft:air",
+            ItemDefinition.AIR,
+            0,
+            null, // Air is never sent in full over the network for this to serialize.
+            null,
+            null,
+            false,
+            Items.AIR
+    );
 
-    String javaIdentifier;
     String bedrockIdentifier;
-    int javaId;
-    int bedrockId;
+    ItemDefinition bedrockDefinition;
     int bedrockData;
 
     /**
      * The Bedrock block runtime ID to render this item with. The specific state *does* matter in how this item is rendered and used as a crafting ingredient.
      * Required since 1.16.220.
      */
-    int bedrockBlockId;
-    int stackSize;
-
-    String toolType;
-    String toolTier;
+    BlockDefinition bedrockBlockDefinition;
 
     String translationString;
 
-    int maxDamage;
+    /**
+     * A map of item models and all of their custom items, sorted from most definition predicates to least, which is important when matching predicates.
+     */
+    @Nullable
+    SortedSetMultimap<Key, GeyserCustomMappingData> customItemDefinitions;
 
-    Set<String> repairMaterials;
+    @Builder.Default
+    boolean containsV1Mappings = false;
+
+    @NonNull
+    Item javaItem;
 
     /**
      * Gets if this item is a block.
@@ -69,7 +85,7 @@ public class ItemMapping {
      * @return if this item is a block
      */
     public boolean isBlock() {
-        return this.bedrockBlockId != -1;
+        return this.bedrockBlockDefinition != null;
     }
 
     /**
@@ -79,14 +95,5 @@ public class ItemMapping {
      */
     public boolean hasTranslation() {
         return this.translationString != null;
-    }
-
-    /**
-     * Gets if this item is a tool.
-     *
-     * @return if this item is a tool
-     */
-    public boolean isTool() {
-        return this.toolType != null;
     }
 }

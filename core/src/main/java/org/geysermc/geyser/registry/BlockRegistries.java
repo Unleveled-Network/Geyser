@@ -25,15 +25,30 @@
 
 package org.geysermc.geyser.registry;
 
+import it.unimi.dsi.fastutil.Pair;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import org.geysermc.geyser.api.block.custom.CustomBlockData;
+import org.geysermc.geyser.api.block.custom.CustomBlockState;
+import org.geysermc.geyser.api.block.custom.nonvanilla.JavaBlockState;
+import org.geysermc.geyser.level.block.Blocks;
+import org.geysermc.geyser.level.block.type.BlockState;
+import org.geysermc.geyser.level.physics.BoundingBox;
+import org.geysermc.geyser.registry.loader.BlockShapeRegistryLoader;
+import org.geysermc.geyser.registry.loader.CollisionRegistryLoader;
 import org.geysermc.geyser.registry.loader.RegistryLoaders;
 import org.geysermc.geyser.registry.populator.BlockRegistryPopulator;
-import org.geysermc.geyser.registry.type.BlockMapping;
+import org.geysermc.geyser.registry.populator.CustomBlockRegistryPopulator;
+import org.geysermc.geyser.registry.populator.CustomSkullRegistryPopulator;
 import org.geysermc.geyser.registry.type.BlockMappings;
-import org.geysermc.geyser.util.collection.Object2IntBiMap;
+import org.geysermc.geyser.registry.type.CustomSkull;
+import org.geysermc.geyser.translator.collision.BlockCollision;
+
+import java.util.ArrayList;
+import java.util.BitSet;
 
 /**
  * Holds all the block registries in Geyser.
@@ -46,37 +61,86 @@ public class BlockRegistries {
     public static final VersionedRegistry<BlockMappings> BLOCKS = VersionedRegistry.create(RegistryLoaders.empty(Int2ObjectOpenHashMap::new));
 
     /**
-     * A mapped registry which stores Java to Bedrock block identifiers.
+     * A registry which stores Java IDs to Java {@link BlockState}s, each with their specific state differences and a link
+     * to the overarching block.
      */
-    public static final SimpleMappedRegistry<String, String> JAVA_TO_BEDROCK_IDENTIFIERS = SimpleMappedRegistry.create(RegistryLoaders.empty(Object2ObjectOpenHashMap::new));
+    public static final ListRegistry<BlockState> BLOCK_STATES = ListRegistry.create(RegistryLoaders.empty(ArrayList::new));
 
     /**
-     * A registry which stores Java IDs to {@link BlockMapping}, containing miscellaneous information about
-     * blocks and their behavior in many cases.
+     * A mapped registry containing which holds block IDs to its {@link BlockCollision}.
      */
-    public static final ArrayRegistry<BlockMapping> JAVA_BLOCKS = ArrayRegistry.create(RegistryLoaders.empty(() -> new BlockMapping[] {}));
+    public static final ListDeferredRegistry<BlockCollision> COLLISIONS = ListDeferredRegistry.create(Pair.of("org.geysermc.geyser.translator.collision.CollisionRemapper", "mappings/collisions.nbt"), CollisionRegistryLoader::new);
 
     /**
-     * A (bi)mapped registry containing the Java IDs to identifiers.
+     * A mapped registry containing which holds block IDs to the respective set of {@link BoundingBox} array
      */
-    public static final MappedRegistry<String, Integer, Object2IntBiMap<String>> JAVA_IDENTIFIERS = MappedRegistry.create(RegistryLoaders.empty(Object2IntBiMap::new));
+    public static final ListDeferredRegistry<BoundingBox[]> SHAPES = ListDeferredRegistry.create("mappings/block_shapes.nbt", BlockShapeRegistryLoader::new);
 
     /**
-     * A registry which stores unique Java IDs to its clean identifier
-     * This is used in the statistics form.
+     * A mapped registry containing the Java block state identifiers to IDs.
      */
-    public static final ArrayRegistry<String> CLEAN_JAVA_IDENTIFIERS = ArrayRegistry.create(RegistryLoaders.empty(() -> new String[] {}));
+    public static final MappedRegistry<String, Integer, Object2IntMap<String>> JAVA_BLOCK_STATE_IDENTIFIER_TO_ID = MappedRegistry.create(RegistryLoaders.empty(Object2IntOpenHashMap::new));
+
+    /**
+     * A registry containing non-vanilla block IDS.
+     */
+    public static final SimpleRegistry<BitSet> NON_VANILLA_BLOCK_IDS = SimpleRegistry.create(RegistryLoaders.empty(BitSet::new));
 
     /**
      * A registry containing all the waterlogged blockstates.
+     * Properties.WATERLOGGED should not be relied on for two reasons:
+     * - Custom blocks
+     * - Seagrass, kelp, and bubble columns are assumed waterlogged and don't have a waterlogged property
      */
-    public static final SimpleRegistry<IntSet> WATERLOGGED = SimpleRegistry.create(RegistryLoaders.empty(IntOpenHashSet::new));
+    public static final SimpleRegistry<BitSet> WATERLOGGED = SimpleRegistry.create(RegistryLoaders.empty(BitSet::new));
 
-    static {
-        BlockRegistryPopulator.populate();
-    }
+    /**
+     * A registry containing all blockstates which are always interactive.
+     */
+    public static final SimpleRegistry<BitSet> INTERACTIVE = SimpleRegistry.create(RegistryLoaders.uninitialized());
 
-    public static void init() {
-        // no-op
+    /**
+     * A registry containing all blockstates which are interactive if the player has the may build permission.
+     */
+    public static final SimpleRegistry<BitSet> INTERACTIVE_MAY_BUILD = SimpleRegistry.create(RegistryLoaders.uninitialized());
+
+    /**
+     * A registry containing all the custom blocks.
+     */
+    public static final ArrayRegistry<CustomBlockData> CUSTOM_BLOCKS = ArrayRegistry.create(RegistryLoaders.empty(() -> new CustomBlockData[] {}));
+
+    /**
+     * A registry which stores Java Ids and the custom block state it should be replaced with.
+     */
+    public static final MappedRegistry<Integer, CustomBlockState, Int2ObjectMap<CustomBlockState>> CUSTOM_BLOCK_STATE_OVERRIDES = MappedRegistry.create(RegistryLoaders.empty(Int2ObjectOpenHashMap::new));
+
+    /**
+     * A registry which stores non vanilla java blockstates and the custom block state it should be replaced with.
+     */
+    public static final SimpleMappedRegistry<JavaBlockState, CustomBlockState> NON_VANILLA_BLOCK_STATE_OVERRIDES = SimpleMappedRegistry.create(RegistryLoaders.empty(Object2ObjectOpenHashMap::new));
+
+    /**
+     * A registry which stores clean Java Ids and the custom block it should be replaced with in the context of items.
+     */
+    public static final SimpleMappedRegistry<String, CustomBlockData> CUSTOM_BLOCK_ITEM_OVERRIDES = SimpleMappedRegistry.create(RegistryLoaders.empty(Object2ObjectOpenHashMap::new));
+
+    /**
+     * A registry which stores skin texture hashes to custom skull blocks.
+     */
+    public static final SimpleMappedRegistry<String, CustomSkull> CUSTOM_SKULLS = SimpleMappedRegistry.create(RegistryLoaders.empty(Object2ObjectOpenHashMap::new));
+
+    public static void populate() {
+        Blocks.VAULT.javaId(); // FIXME
+        CustomSkullRegistryPopulator.populate();
+        BlockRegistryPopulator.populate(BlockRegistryPopulator.Stage.PRE_INIT);
+        CustomBlockRegistryPopulator.populate(CustomBlockRegistryPopulator.Stage.DEFINITION);
+        BlockRegistryPopulator.populate(BlockRegistryPopulator.Stage.INIT_JAVA);
+        COLLISIONS.load();
+        SHAPES.load();
+        CustomBlockRegistryPopulator.populate(CustomBlockRegistryPopulator.Stage.NON_VANILLA_REGISTRATION);
+        CustomBlockRegistryPopulator.populate(CustomBlockRegistryPopulator.Stage.VANILLA_REGISTRATION);
+        CustomBlockRegistryPopulator.populate(CustomBlockRegistryPopulator.Stage.CUSTOM_REGISTRATION);
+        BlockRegistryPopulator.populate(BlockRegistryPopulator.Stage.INIT_BEDROCK);
+        BlockRegistryPopulator.populate(BlockRegistryPopulator.Stage.POST_INIT);
     }
 }

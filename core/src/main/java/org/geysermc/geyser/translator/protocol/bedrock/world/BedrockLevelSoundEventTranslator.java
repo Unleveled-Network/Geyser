@@ -25,8 +25,8 @@
 
 package org.geysermc.geyser.translator.protocol.bedrock.world;
 
-import com.nukkitx.protocol.bedrock.data.SoundEvent;
-import com.nukkitx.protocol.bedrock.packet.LevelSoundEventPacket;
+import org.cloudburstmc.protocol.bedrock.data.SoundEvent;
+import org.cloudburstmc.protocol.bedrock.packet.LevelSoundEventPacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
@@ -44,7 +44,7 @@ public class BedrockLevelSoundEventTranslator extends PacketTranslator<LevelSoun
         if (packet.getSound() == SoundEvent.ATTACK_NODAMAGE || packet.getSound() == SoundEvent.ATTACK || packet.getSound() == SoundEvent.ATTACK_STRONG) {
             // Send a faux cooldown since Bedrock has no cooldown support
             // Sent here because Java still sends a cooldown if the player doesn't hit anything but Bedrock always sends a sound
-            CooldownUtils.sendCooldown(session);
+            CooldownUtils.setCooldownHitTime(session);
         }
     }
 }

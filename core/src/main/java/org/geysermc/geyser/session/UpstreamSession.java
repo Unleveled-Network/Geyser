@@ -25,20 +25,25 @@
 
 package org.geysermc.geyser.session;
 
-import com.nukkitx.protocol.bedrock.BedrockPacket;
-import com.nukkitx.protocol.bedrock.BedrockServerSession;
 import lombok.Getter;
-import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.cloudburstmc.protocol.bedrock.BedrockServerSession;
+import org.cloudburstmc.protocol.bedrock.codec.BedrockCodecHelper;
+import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.geysermc.geyser.network.bedrock.GeyserBedrockPeer;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayDeque;
+import java.util.Queue;
 
 @RequiredArgsConstructor
 public class UpstreamSession {
     @Getter private final BedrockServerSession session;
     @Getter @Setter
     private boolean initialized = false;
+    private Queue<BedrockPacket> postStartGamePackets = new ArrayDeque<>();
 
     public void sendPacket(@NonNull BedrockPacket packet) {
         if (!isClosed()) {
@@ -53,15 +58,39 @@ public class UpstreamSession {
     }
 
     public void disconnect(String reason) {
-        session.disconnect(reason);
+        this.session.disconnect(reason);
+    }
+
+    /**
+     * Queue a packet that must be delayed until after login.
+     */
+    public void queuePostStartGamePacket(BedrockPacket packet) {
+        postStartGamePackets.add(packet);
+    }
+
+    public void sendPostStartGamePackets() {
+        if (isClosed()) {
+            return;
+        }
+
+        BedrockPacket packet;
+        while ((packet = postStartGamePackets.poll()) != null) {
+            session.sendPacket(packet);
+        }
+        postStartGamePackets = null;
     }
 
     public boolean isClosed() {
-        return session.isClosed();
+        return !session.getPeer().isConnected() && !session.getPeer().isConnecting();
     }
 
     public InetSocketAddress getAddress() {
-        return session.getRealAddress();
+        // Will always be an InetSocketAddress. See ProxyChannel#remoteAddress
+        return (InetSocketAddress) ((GeyserBedrockPeer) session.getPeer()).getRealAddress();
+    }
+
+    public void setInetAddress(InetSocketAddress address) {
+        ((GeyserBedrockPeer) session.getPeer()).setProxiedAddress(address);
     }
 
     /**
@@ -70,6 +99,19 @@ public class UpstreamSession {
      * @return the session's protocol version.
      */
     public int getProtocolVersion() {
-        return this.session.getPacketCodec().getProtocolVersion();
+        return this.session.getCodec().getProtocolVersion();
+    }
+
+    /**
+     * Gets the codec helper for this session.
+     *
+     * @return the codec helper for this session
+     */
+    public BedrockCodecHelper getCodecHelper() {
+        return this.session.getPeer().getCodecHelper();
+    }
+
+    public void forciblyClose() {
+        this.session.getPeer().getChannel().close();
     }
 }

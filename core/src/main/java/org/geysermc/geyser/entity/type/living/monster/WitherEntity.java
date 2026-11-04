@@ -25,58 +25,55 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataType;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.Entity;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
 
 public class WitherEntity extends MonsterEntity {
 
-    public WitherEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public WitherEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
     protected void initializeMetadata() {
         super.initializeMetadata();
-        dirtyMetadata.put(EntityData.WITHER_AERIAL_ATTACK, (short) 1);
+        metadata.put(EntityDataTypes.WITHER_AERIAL_ATTACK, (short) 1);
     }
 
     public void setTarget1(IntEntityMetadata entityMetadata) {
-        setTargetId(EntityData.WITHER_TARGET_1, entityMetadata);
+        setTargetId(EntityDataTypes.WITHER_TARGET_A, entityMetadata);
     }
 
     public void setTarget2(IntEntityMetadata entityMetadata) {
-        setTargetId(EntityData.WITHER_TARGET_2, entityMetadata);
+        setTargetId(EntityDataTypes.WITHER_TARGET_B, entityMetadata);
     }
 
     public void setTarget3(IntEntityMetadata entityMetadata) {
-        setTargetId(EntityData.WITHER_TARGET_3, entityMetadata);
+        setTargetId(EntityDataTypes.WITHER_TARGET_C, entityMetadata);
     }
 
-    private void setTargetId(EntityData entityData, IntEntityMetadata entityMetadata) {
+    private void setTargetId(EntityDataType<Long> entityData, IntEntityMetadata entityMetadata) {
         int entityId = entityMetadata.getPrimitiveValue();
         Entity entity = session.getEntityCache().getEntityByJavaId(entityId);
         if (entity != null) {
-            dirtyMetadata.put(entityData, entity.getGeyserId());
+            metadata.put(entityData, entity.geyserId());
         } else {
-            dirtyMetadata.put(entityData, (long) 0);
+            metadata.put(entityData, (long) 0);
         }
     }
 
     public void setInvulnerableTicks(IntEntityMetadata entityMetadata) {
         int value = entityMetadata.getPrimitiveValue();
-        dirtyMetadata.put(EntityData.WITHER_INVULNERABLE_TICKS, value);
+        metadata.put(EntityDataTypes.WITHER_INVULNERABLE_TICKS, value);
 
         // Show the shield for the first few seconds of spawning (like Java)
         if (value >= 165) {
-            dirtyMetadata.put(EntityData.WITHER_AERIAL_ATTACK, (short) 0);
+            metadata.put(EntityDataTypes.WITHER_AERIAL_ATTACK, (short) 0);
         } else {
-            dirtyMetadata.put(EntityData.WITHER_AERIAL_ATTACK, (short) 1);
+            metadata.put(EntityDataTypes.WITHER_AERIAL_ATTACK, (short) 1);
         }
     }
 }

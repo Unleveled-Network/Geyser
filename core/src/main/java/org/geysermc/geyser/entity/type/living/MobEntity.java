@@ -25,26 +25,34 @@
 
 package org.geysermc.geyser.entity.type.living;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import com.nukkitx.protocol.bedrock.data.entity.EntityFlag;
-import lombok.Getter;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.entity.type.Leashable;
 import org.geysermc.geyser.entity.type.LivingEntity;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.enchantment.EnchantmentComponent;
+import org.geysermc.geyser.item.type.SpawnEggItem;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.geyser.util.InteractiveTag;
+import org.geysermc.geyser.util.ItemUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.EquipmentSlot;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.GameMode;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.Equippable;
 
-import java.util.UUID;
-
-public class MobEntity extends LivingEntity {
+public class MobEntity extends LivingEntity implements Leashable {
     /**
      * If another mob is holding this mob by a leash, this variable tracks their Bedrock entity ID.
      */
-    @Getter
     private long leashHolderBedrockId;
 
-    public MobEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public MobEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
@@ -58,8 +66,112 @@ public class MobEntity extends LivingEntity {
         setFlag(EntityFlag.NO_AI, (xd & 0x01) == 0x01);
     }
 
+    @Override
     public void setLeashHolderBedrockId(long bedrockId) {
         this.leashHolderBedrockId = bedrockId;
-        dirtyMetadata.put(EntityData.LEASH_HOLDER_EID, bedrockId);
+        metadata.put(EntityDataTypes.LEASH_HOLDER, bedrockId);
+    }
+
+    @Override
+    protected final InteractiveTag testInteraction(Hand hand) {
+        if (!isAlive()) {
+            // dead lol
+            return InteractiveTag.NONE;
+        } else if (leashHolderBedrockId == session.getPlayerEntity().geyserId()) {
+            return InteractiveTag.REMOVE_LEASH;
+        } else {
+            GeyserItemStack itemStack = session.getPlayerInventory().getItemInHand(hand);
+            if (itemStack.is(Items.NAME_TAG)) {
+                InteractionResult result = checkInteractWithNameTag(itemStack);
+                if (result.consumesAction()) {
+                    return InteractiveTag.NAME;
+                }
+            }
+
+            InteractiveTag tag = testMobInteraction(hand, itemStack);
+            return tag != InteractiveTag.NONE ? tag : super.testInteraction(hand);
+        }
+    }
+
+    @Override
+    public final InteractionResult interact(Hand hand) {
+        if (!isAlive()) {
+            // dead lol
+            return InteractionResult.PASS;
+        } else {
+            GeyserItemStack itemInHand = session.getPlayerInventory().getItemInHand(hand);
+            InteractionResult result = checkPriorityInteractions(itemInHand);
+            if (result.consumesAction()) {
+                return result;
+            } else {
+                InteractionResult mobResult = mobInteract(hand, itemInHand);
+                return mobResult.consumesAction() ? mobResult : super.interact(hand);
+            }
+        }
+    }
+
+    public boolean canShearEquipment() {
+        if (!passengers.isEmpty()) {
+            return false;
+        }
+
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            GeyserItemStack equipped = getItemInSlot(slot);
+            if (equipped.isEmpty()) {
+                continue;
+            }
+
+            Equippable equippable = equipped.getComponent(DataComponentTypes.EQUIPPABLE);
+            if (equippable != null && equippable.canBeSheared()) {
+                if (!ItemUtils.hasEffect(session.javaRegistries(), equipped, EnchantmentComponent.PREVENT_ARMOR_CHANGE) || session.getGameMode() == GameMode.CREATIVE) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private InteractionResult checkPriorityInteractions(GeyserItemStack itemInHand) {
+        if (itemInHand.is(Items.NAME_TAG)) {
+            InteractionResult result = checkInteractWithNameTag(itemInHand);
+            if (result.consumesAction()) {
+                return result;
+            }
+        } else {
+            if (itemInHand.asItem() instanceof SpawnEggItem) {
+                // Using the spawn egg on this entity to create a child
+                return InteractionResult.CONSUME;
+            }
+        }
+
+        return InteractionResult.PASS;
+    }
+
+    @NonNull
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        return InteractiveTag.NONE;
+    }
+
+    @NonNull
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        return InteractionResult.PASS;
+    }
+
+    @Override
+    public boolean canBeLeashed() {
+        return !isEnemy();
+    }
+
+    @Override
+    public long leashHolderBedrockId() {
+        return leashHolderBedrockId;
+    }
+
+    /**
+     * Returns if the entity is hostile. Used to determine if it can be leashed.
+     */
+    protected boolean isEnemy() {
+        return false;
     }
 }

@@ -25,90 +25,127 @@
 
 package org.geysermc.geyser.translator.inventory;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.github.steveice10.mc.protocol.data.game.inventory.ContainerType;
-import com.github.steveice10.mc.protocol.packet.ingame.serverbound.inventory.ServerboundContainerButtonClickPacket;
-import com.nukkitx.protocol.bedrock.data.inventory.ContainerSlotType;
-import com.nukkitx.protocol.bedrock.data.inventory.ItemStackRequest;
-import com.nukkitx.protocol.bedrock.data.inventory.StackRequestSlotInfoData;
-import com.nukkitx.protocol.bedrock.data.inventory.stackrequestactions.CraftResultsDeprecatedStackRequestActionData;
-import com.nukkitx.protocol.bedrock.data.inventory.stackrequestactions.StackRequestActionData;
-import com.nukkitx.protocol.bedrock.data.inventory.stackrequestactions.StackRequestActionType;
-import com.nukkitx.protocol.bedrock.packet.ItemStackResponsePacket;
-import it.unimi.dsi.fastutil.ints.IntList;
-import org.geysermc.geyser.inventory.GeyserItemStack;
-import org.geysermc.geyser.inventory.Inventory;
-import org.geysermc.geyser.inventory.PlayerInventory;
-import org.geysermc.geyser.inventory.StonecutterContainer;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.inventory.BedrockContainerSlot;
-import org.geysermc.geyser.inventory.SlotType;
+import it.unimi.dsi.fastutil.ints.IntSet;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerSlotType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequest;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.ItemStackRequestSlotData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.CraftRecipeAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.ItemStackRequestActionType;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.request.action.TransferItemStackRequestAction;
+import org.cloudburstmc.protocol.bedrock.data.inventory.itemstack.response.ItemStackResponse;
+import org.geysermc.geyser.inventory.*;
+import org.geysermc.geyser.inventory.click.Click;
+import org.geysermc.geyser.inventory.click.ClickPlan;
+import org.geysermc.geyser.inventory.recipe.GeyserStonecutterData;
 import org.geysermc.geyser.inventory.updater.UIInventoryUpdater;
-import org.geysermc.geyser.translator.inventory.item.ItemTranslator;
+import org.geysermc.geyser.level.block.Blocks;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.inventory.ContainerType;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundContainerButtonClickPacket;
 
-public class StonecutterInventoryTranslator extends AbstractBlockInventoryTranslator {
+public class StonecutterInventoryTranslator extends AbstractBlockInventoryTranslator<StonecutterContainer> {
     public StonecutterInventoryTranslator() {
-        super(2, "minecraft:stonecutter[facing=north]", com.nukkitx.protocol.bedrock.data.inventory.ContainerType.STONECUTTER, UIInventoryUpdater.INSTANCE);
+        super(2, Blocks.STONECUTTER, org.cloudburstmc.protocol.bedrock.data.inventory.ContainerType.STONECUTTER, UIInventoryUpdater.INSTANCE);
     }
 
     @Override
-    protected boolean shouldHandleRequestFirst(StackRequestActionData action, Inventory inventory) {
-        // First is pre-1.18. TODO remove after 1.17.40 support is dropped and refactor stonecutter support to use CraftRecipeStackRequestActionData's recipe ID
-        return action.getType() == StackRequestActionType.CRAFT_NON_IMPLEMENTED_DEPRECATED || action.getType() == StackRequestActionType.CRAFT_RECIPE;
+    protected boolean shouldHandleRequestFirst(ItemStackRequestAction action, StonecutterContainer container) {
+        return action.getType() == ItemStackRequestActionType.CRAFT_RECIPE;
     }
 
     @Override
-    public ItemStackResponsePacket.Response translateSpecialRequest(GeyserSession session, Inventory inventory, ItemStackRequest request) {
-        // TODO: Also surely to change in the future
-        StackRequestActionData data = request.getActions()[1];
-        if (!(data instanceof CraftResultsDeprecatedStackRequestActionData craftData)) {
-            return rejectRequest(request);
-        }
+    protected ItemStackResponse translateSpecialRequest(GeyserSession session, StonecutterContainer container, ItemStackRequest request) {
+        // Guarded by shouldHandleRequestFirst
+        CraftRecipeAction data = (CraftRecipeAction) request.getActions()[0];
 
-        StonecutterContainer container = (StonecutterContainer) inventory;
-        // Get the ID of the item we are cutting
-        int id = inventory.getItem(0).getJavaId();
         // Look up all possible options of cutting from this ID
-        IntList results = session.getStonecutterRecipes().get(id);
-        if (results == null) {
+        GeyserStonecutterData craftingData = session.getStonecutterRecipes().get(data.getRecipeNetworkId());
+        if (craftingData == null) {
             return rejectRequest(request);
         }
 
-        ItemStack javaOutput = ItemTranslator.translateToJava(craftData.getResultItems()[0], session.getItemMappings());
-        int button = results.indexOf(javaOutput.getId());
+        ItemStack javaOutput = craftingData.output();
+        int button = craftingData.buttonId();
+
         // If we've already pressed the button with this item, no need to press it again!
         if (container.getStonecutterButton() != button) {
             // Getting the index of the item in the Java stonecutter list
-            ServerboundContainerButtonClickPacket packet = new ServerboundContainerButtonClickPacket(inventory.getId(), button);
-            session.sendDownstreamPacket(packet);
+            ServerboundContainerButtonClickPacket packet = new ServerboundContainerButtonClickPacket(container.getJavaId(), button);
+            session.sendDownstreamGamePacket(packet);
             container.setStonecutterButton(button);
-            if (inventory.getItem(1).getJavaId() != javaOutput.getId()) {
-                // We don't know there is an output here, so we tell ourselves that there is
-                inventory.setItem(1, GeyserItemStack.from(javaOutput), session);
-            }
         }
 
-        return translateRequest(session, inventory, request);
+        if (container.getItem(1).getJavaId() != javaOutput.getId()) {
+            // We don't know there is an output here, so we tell ourselves that there is
+            container.setItem(1, GeyserItemStack.from(session, javaOutput), session);
+        }
+
+        // The client might send multiple ItemStackRequests for one shift click,
+        // so check if input is empty, meaning we already sent one
+        GeyserItemStack input = container.getItem(0);
+        if (input.isEmpty()) {
+            return rejectRequest(request, false);
+        }
+
+        // support for quick move on the output.
+        // CRAFT_RECIPE is always at index 0 so we do instanceof checks for obvious reasons
+        if (data.getNumberOfRequestedCrafts() > 1) {
+            for (ItemStackRequestAction action : request.getActions()) {
+                if (action instanceof TransferItemStackRequestAction transfer) {
+                    if (transfer.getSource().getContainerName().getContainer() == ContainerSlotType.CREATED_OUTPUT) {
+                        ContainerSlotType destContainer = transfer.getDestination().getContainerName().getContainer();
+
+                        if (destContainer == ContainerSlotType.HOTBAR
+                            || destContainer == ContainerSlotType.HOTBAR_AND_INVENTORY
+                            || destContainer == ContainerSlotType.INVENTORY) {
+
+                            // shift click of the result into the inventory
+                            ClickPlan plan = new ClickPlan(session, this, container);
+                            plan.add(Click.LEFT_SHIFT, 1);
+                            plan.execute(true);
+
+                            // slot 0 = stonecutter input, special logic here as getGridSize is non existent! yay!
+                            // from my testing, this seems to cause ClickPlan#reduceCraftingGrid to return early which is
+                            // why we have to handle this logic ourselves...
+                            // to do, check in to the mental asylum
+                            container.setItem(0, GeyserItemStack.EMPTY, session); // assume that all input was used. server will resync
+
+                            // we need to ALWAYS update slot 0 as well so that the client knows the new input count
+                            IntSet reportedSlots = plan.getAffectedSlots();
+                            reportedSlots.add(0);
+
+                            return acceptRequest(request, makeContainerEntries(session, container, reportedSlots));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // translate the request normally as it's a plain single craft. no shift-click transfer actions found
+        return translateRequest(session, container, request);
     }
 
     @Override
-    public int bedrockSlotToJava(StackRequestSlotInfoData slotInfoData) {
-        return switch (slotInfoData.getContainer()) {
+    public int bedrockSlotToJava(ItemStackRequestSlotData slotInfoData) {
+        return switch (slotInfoData.getContainerName().getContainer()) {
             case STONECUTTER_INPUT -> 0;
-            case STONECUTTER_RESULT, CREATIVE_OUTPUT -> 1;
+            case STONECUTTER_RESULT, CREATED_OUTPUT -> 1;
             default -> super.bedrockSlotToJava(slotInfoData);
         };
     }
 
     @Override
-    public BedrockContainerSlot javaSlotToBedrockContainer(int slot) {
+    public BedrockContainerSlot javaSlotToBedrockContainer(int slot, StonecutterContainer container) {
         if (slot == 0) {
             return new BedrockContainerSlot(ContainerSlotType.STONECUTTER_INPUT, 3);
         }
         if (slot == 1) {
             return new BedrockContainerSlot(ContainerSlotType.STONECUTTER_RESULT, 50);
         }
-        return super.javaSlotToBedrockContainer(slot);
+        return super.javaSlotToBedrockContainer(slot, container);
     }
 
     @Override
@@ -131,7 +168,12 @@ public class StonecutterInventoryTranslator extends AbstractBlockInventoryTransl
     }
 
     @Override
-    public Inventory createInventory(String name, int windowId, ContainerType containerType, PlayerInventory playerInventory) {
-        return new StonecutterContainer(name, windowId, this.size, containerType, playerInventory);
+    public StonecutterContainer createInventory(GeyserSession session, String name, int windowId, ContainerType containerType) {
+        return new StonecutterContainer(session, name, windowId, this.size, containerType);
+    }
+
+    @Override
+    public org.cloudburstmc.protocol.bedrock.data.inventory.@Nullable ContainerType closeContainerType(StonecutterContainer container) {
+        return org.cloudburstmc.protocol.bedrock.data.inventory.ContainerType.STONECUTTER;
     }
 }

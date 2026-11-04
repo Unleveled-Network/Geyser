@@ -25,18 +25,10 @@
 
 package org.geysermc.geyser.translator.protocol.bedrock;
 
-import com.github.steveice10.mc.protocol.packet.ingame.serverbound.ServerboundKeepAlivePacket;
-import com.nukkitx.protocol.bedrock.data.AttributeData;
-import com.nukkitx.protocol.bedrock.packet.NetworkStackLatencyPacket;
-import com.nukkitx.protocol.bedrock.packet.UpdateAttributesPacket;
-import org.geysermc.geyser.entity.attribute.GeyserAttributeType;
+import org.cloudburstmc.protocol.bedrock.packet.NetworkStackLatencyPacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
-import org.geysermc.floodgate.util.DeviceOs;
-
-import java.util.Collections;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Used to send the forwarded keep alive packet back to the server
@@ -46,37 +38,18 @@ public class BedrockNetworkStackLatencyTranslator extends PacketTranslator<Netwo
 
     @Override
     public void translate(GeyserSession session, NetworkStackLatencyPacket packet) {
-        long pingId;
-        // so apparently, as of 1.16.200
-        // PS4 divides the network stack latency timestamp FOR US!!!
-        // WTF
-        if (session.getClientData().getDeviceOs().equals(DeviceOs.PS4)) {
-            pingId = packet.getTimestamp();
-        } else {
-            pingId = packet.getTimestamp() / 1000;
-        }
-
-        // negative timestamps are used as hack to fix the url image loading bug
-        if (packet.getTimestamp() > 0) {
-            if (session.getGeyser().getConfig().isForwardPlayerPing()) {
-                ServerboundKeepAlivePacket keepAlivePacket = new ServerboundKeepAlivePacket(pingId);
-                session.sendDownstreamPacket(keepAlivePacket);
-            }
+        // We should receive these packets in the same order they were sent
+        final Runnable latencyPing = session.getLatencyPingCache().poll();
+        if (latencyPing == null) {
+            session.getGeyser().getLogger().debug("Received a latency packet that we don't have a ping for: " + packet);
             return;
         }
 
-        // Hack to fix the url image loading bug
-        UpdateAttributesPacket attributesPacket = new UpdateAttributesPacket();
-        attributesPacket.setRuntimeEntityId(session.getPlayerEntity().getGeyserId());
+        latencyPing.run();
+    }
 
-        AttributeData attribute = session.getPlayerEntity().getAttributes().get(GeyserAttributeType.EXPERIENCE_LEVEL);
-        if (attribute != null) {
-            attributesPacket.setAttributes(Collections.singletonList(attribute));
-        } else {
-            attributesPacket.setAttributes(Collections.singletonList(GeyserAttributeType.EXPERIENCE_LEVEL.getAttribute(0)));
-        }
-
-        session.scheduleInEventLoop(() -> session.sendUpstreamPacket(attributesPacket),
-                500, TimeUnit.MILLISECONDS);
+    @Override
+    public boolean shouldExecuteInEventLoop() {
+        return false; // Controlled by the latency ping cache runnables instead
     }
 }

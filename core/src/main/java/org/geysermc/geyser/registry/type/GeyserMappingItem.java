@@ -25,23 +25,27 @@
 
 package org.geysermc.geyser.registry.type;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
-
-import java.util.List;
+import com.google.gson.annotations.SerializedName;
+import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+import lombok.With;
 
 /**
  * Represents Geyser's own serialized item information before being processed per-version
  */
-@Data
+@ToString
+@EqualsAndHashCode
+@Getter
+@With
+@NoArgsConstructor
+@AllArgsConstructor
 public class GeyserMappingItem {
-    @JsonProperty("bedrock_identifier") String bedrockIdentifier;
-    @JsonProperty("bedrock_data") int bedrockData;
+    @SerializedName("bedrock_identifier") String bedrockIdentifier;
+    @SerializedName("bedrock_data") int bedrockData;
     Integer firstBlockRuntimeId;
     Integer lastBlockRuntimeId;
-    @JsonProperty("stack_size") int stackSize = 64;
-    @JsonProperty("tool_type") String toolType;
-    @JsonProperty("tool_tier") String toolTier;
-    @JsonProperty("max_damage") int maxDamage = 0;
-    @JsonProperty("repair_materials") List<String> repairMaterials;
+    @SerializedName("is_entity_placer") boolean entityPlacer = false;
 }

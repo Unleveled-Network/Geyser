@@ -25,21 +25,24 @@
 
 package org.geysermc.geyser.level.physics;
 
-import com.github.steveice10.mc.protocol.data.game.level.block.value.PistonValue;
-import com.nukkitx.math.vector.Vector3i;
 import lombok.Getter;
+import lombok.experimental.Accessors;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.cloudburstmc.math.vector.Vector3i;
+import org.geysermc.geyser.GeyserImpl;
 
-import javax.annotation.Nonnull;
+import java.util.function.ToIntFunction;
 
 public enum Direction {
-    DOWN(1, Vector3i.from(0, -1, 0), Axis.Y, PistonValue.DOWN),
-    UP(0, Vector3i.UNIT_Y, Axis.Y, PistonValue.UP),
-    NORTH(3, Vector3i.from(0, 0, -1), Axis.Z, PistonValue.NORTH),
-    SOUTH(2, Vector3i.UNIT_Z, Axis.Z, PistonValue.SOUTH),
-    WEST(5, Vector3i.from(-1, 0, 0), Axis.X, PistonValue.WEST),
-    EAST(4, Vector3i.UNIT_X, Axis.X, PistonValue.EAST);
+    DOWN(1, Vector3i.from(0, -1, 0), Axis.Y, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction.DOWN),
+    UP(0, Vector3i.UNIT_Y, Axis.Y, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction.UP),
+    NORTH(3, Vector3i.from(0, 0, -1), Axis.Z, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction.NORTH),
+    SOUTH(2, Vector3i.UNIT_Z, Axis.Z, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction.SOUTH),
+    WEST(5, Vector3i.from(-1, 0, 0), Axis.X, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction.WEST),
+    EAST(4, Vector3i.UNIT_X, Axis.X, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction.EAST);
 
     public static final Direction[] VALUES = values();
+    public static final Direction[] HORIZONTAL = new Direction[]{Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST};
 
     private final int reversedId;
     @Getter
@@ -47,13 +50,14 @@ public enum Direction {
     @Getter
     private final Axis axis;
     @Getter
-    private final PistonValue pistonValue;
+    @Accessors(fluent = true)
+    private final org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction mcpl;
 
-    Direction(int reversedId, Vector3i unitVector, Axis axis, PistonValue pistonValue) {
+    Direction(int reversedId, Vector3i unitVector, Axis axis, org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction mcpl) {
         this.reversedId = reversedId;
         this.unitVector = unitVector;
         this.axis = axis;
-        this.pistonValue = pistonValue;
+        this.mcpl = mcpl;
     }
 
     public Direction reversed() {
@@ -68,13 +72,41 @@ public enum Direction {
         return axis == Axis.X || axis == Axis.Z;
     }
 
-    @Nonnull
-    public static Direction fromPistonValue(PistonValue pistonValue) {
+    public Direction clockWise() {
+        return switch (this) {
+            case NORTH -> EAST;
+            case SOUTH -> WEST;
+            case WEST -> NORTH;
+            case EAST -> SOUTH;
+            default -> throw new IllegalStateException("Unable to get CW facing of " + this);
+        };
+    }
+
+    public Direction counterClockWise() {
+        return switch (this) {
+            case NORTH -> WEST;
+            case SOUTH -> EAST;
+            case WEST -> SOUTH;
+            case EAST -> NORTH;
+            default -> throw new IllegalStateException("Unable to get CCW facing of " + this);
+        };
+    }
+
+    public static @NonNull Direction fromMCPL(org.geysermc.mcprotocollib.protocol.data.game.entity.object.Direction mcpl) {
         for (Direction direction : VALUES) {
-            if (direction.pistonValue == pistonValue) {
+            if (direction.mcpl == mcpl) {
                 return direction;
             }
         }
         throw new IllegalStateException();
+    }
+
+    public static <T> Direction getUntrusted(T source, ToIntFunction<T> idExtractor) {
+        int id = idExtractor.applyAsInt(source);
+        if (id < 0 || id >= VALUES.length) {
+            GeyserImpl.getInstance().getLogger().warning("Received invalid direction from " + source + " (ID was " + id + ")");
+            return DOWN; // Default to DOWN when receiving an invalid ID
+        }
+        return Direction.VALUES[id];
     }
 }

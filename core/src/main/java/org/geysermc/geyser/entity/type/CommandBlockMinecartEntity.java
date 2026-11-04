@@ -25,26 +25,29 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.cloudburstmc.math.vector.Vector3i;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerType;
+import org.cloudburstmc.protocol.bedrock.packet.ContainerOpenPacket;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.util.InteractionResult;
+import org.geysermc.geyser.util.InteractiveTag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class CommandBlockMinecartEntity extends DefaultBlockMinecartEntity {
 
-    public CommandBlockMinecartEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public CommandBlockMinecartEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
     protected void initializeMetadata() {
+        super.initializeMetadata();
         // Required, or else the GUI will not open
-        dirtyMetadata.put(EntityData.CONTAINER_TYPE, (byte) 16);
-        dirtyMetadata.put(EntityData.CONTAINER_BASE_SIZE, 1);
+        metadata.put(EntityDataTypes.CONTAINER_TYPE, (byte) 16);
+        metadata.put(EntityDataTypes.CONTAINER_SIZE, 1);
         // Required, or else the client does not bother to send a packet back with the new information
-        dirtyMetadata.put(EntityData.COMMAND_BLOCK_ENABLED, (byte) 1);
+        metadata.put(EntityDataTypes.COMMAND_BLOCK_ENABLED, true);
     }
 
     /**
@@ -52,7 +55,33 @@ public class CommandBlockMinecartEntity extends DefaultBlockMinecartEntity {
      */
     @Override
     public void updateDefaultBlockMetadata() {
-        dirtyMetadata.put(EntityData.DISPLAY_ITEM, session.getBlockMappings().getCommandBlockRuntimeId());
-        dirtyMetadata.put(EntityData.DISPLAY_OFFSET, 6);
+        metadata.put(EntityDataTypes.DISPLAY_BLOCK_STATE, session.getBlockMappings().getCommandBlock());
+        metadata.put(EntityDataTypes.DISPLAY_OFFSET, 6);
+    }
+
+    @Override
+    protected InteractiveTag testInteraction(Hand hand) {
+        if (session.canUseCommandBlocks()) {
+            return InteractiveTag.OPEN_CONTAINER;
+        } else {
+            return InteractiveTag.NONE;
+        }
+    }
+
+    @Override
+    public InteractionResult interact(Hand hand) {
+        if (session.canUseCommandBlocks()) {
+            // Client-side GUI required
+            ContainerOpenPacket openPacket = new ContainerOpenPacket();
+            openPacket.setBlockPosition(Vector3i.ZERO);
+            openPacket.setId((byte) 1);
+            openPacket.setType(ContainerType.COMMAND_BLOCK);
+            openPacket.setUniqueEntityId(geyserId);
+            session.sendUpstreamPacket(openPacket);
+
+            return InteractionResult.SUCCESS;
+        } else {
+            return InteractionResult.PASS;
+        }
     }
 }

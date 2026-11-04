@@ -25,24 +25,20 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.nukkitx.math.vector.Vector3f;
-import com.nukkitx.protocol.bedrock.data.entity.EntityData;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.AbstractFishEntity;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
 
 public class PufferFishEntity extends AbstractFishEntity {
 
-    public PufferFishEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public PufferFishEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setPufferfishSize(IntEntityMetadata entityMetadata) {
         int puffsize = entityMetadata.getPrimitiveValue();
-        dirtyMetadata.put(EntityData.PUFFERFISH_SIZE, (byte) puffsize);
-        dirtyMetadata.put(EntityData.VARIANT, puffsize);
+        metadata.put(EntityDataTypes.PUFFED_STATE, (byte) puffsize);
+        metadata.put(EntityDataTypes.VARIANT, puffsize);
     }
 }
